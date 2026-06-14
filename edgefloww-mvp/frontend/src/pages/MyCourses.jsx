@@ -18,9 +18,9 @@ export default function MyCourses({ user }) {
 
       <div className="grid">
         {courses.map(c => (
-          <Link key={c.id} to={`/course/${c.id}`} className="card course-card" style={{ textDecoration: "none", color: "inherit" }}>
+          <Link key={c._id} to={`/course/${c._id}`} className="card course-card" style={{ textDecoration: "none", color: "inherit" }}>
             {c.cover && <img src={c.cover} alt="" style={{ width: "100%", aspectRatio: "16/9", objectFit: "cover", borderRadius: 8, marginBottom: 12 }} />}
-            <div className="price">${c.priceUSDT} USDT</div>
+            <div className="price">{c.priceUSDT} ₽</div>
             <div className="title">{c.title}</div>
             <div className="meta">{c.lesson_count || 0} lessons {c.category && <span className="badge badge-blue">{c.category}</span>}</div>
           </Link>

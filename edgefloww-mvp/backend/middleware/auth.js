@@ -1,4 +1,4 @@
-import jwt from "jsonwebtoken";
+import crypto from "crypto";
 
 const JWT_SECRET = process.env.JWT_SECRET || "edgefloww_super_secret_change_in_prod";
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";

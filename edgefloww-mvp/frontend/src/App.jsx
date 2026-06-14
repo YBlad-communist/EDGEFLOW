@@ -10,7 +10,6 @@ import MyCourses from "./pages/MyCourses.jsx";
 import MyLearning from "./pages/MyLearning.jsx";
 import WatchLesson from "./pages/WatchLesson.jsx";
 import AdminPanel from "./pages/AdminPanel.jsx";
-import { Web3Provider } from "./context/Web3Provider.jsx";
 import { api, setToken, clearToken } from "./api.js";
 
 function RequireAdmin({ user, children }) {
@@ -22,7 +21,15 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => { const t = localStorage.getItem("eftoken"); if (t) { setToken(t); api("/api/auth/me").then(setUser).catch(() => clearToken()).finally(() => setLoading(false)); } else setLoading(false); }, []);
+  useEffect(() => {
+    const t = localStorage.getItem("eftoken");
+    if (t) {
+      setToken(t);
+      api("/api/auth/me").then(setUser).catch(() => clearToken()).finally(() => setLoading(false));
+    } else {
+      setLoading(false);
+    }
+  }, []);
 
   if (loading) return <div className="page text-center" style={{ paddingTop: 100 }}><h2>⚡</h2><p>Loading...</p></div>;
   if (!user) return <Routes>
@@ -31,7 +38,7 @@ export default function App() {
     <Route path="*" element={<Navigate to="/login" />} />
   </Routes>;
 
-  return <Web3Provider>
+  return <>
     <Navbar user={user} onLogout={() => { clearToken(); setUser(null); }} />
     <div className="page">
       <Routes>
@@ -45,5 +52,5 @@ export default function App() {
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </div>
-  </Web3Provider>;
+  </>;
 }

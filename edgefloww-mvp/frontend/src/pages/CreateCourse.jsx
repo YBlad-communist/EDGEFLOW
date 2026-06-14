@@ -58,7 +58,7 @@ export default function CreateCourse({ user }) {
       <form onSubmit={handleCreate}>
         <div className="form-group"><label className="form-label">Title</label><input value={form.title} onChange={e => set("title", e.target.value)} placeholder="e.g. Web3 for Beginners" required /></div>
         <div className="form-group"><label className="form-label">Description</label><textarea value={form.description} onChange={e => set("description", e.target.value)} rows={4} placeholder="Describe your course..." /></div>
-        <div className="form-group"><label className="form-label">Price (USDT)</label><input type="number" value={form.price} onChange={e => set("price", Number(e.target.value))} min={1} /></div>
+        <div className="form-group"><label className="form-label">Price (RUB)</label><input type="number" value={form.price} onChange={e => set("price", Number(e.target.value))} min={1} /></div>
         <div className="form-group"><label className="form-label">Category</label>
           <select value={form.category} onChange={e => set("category", e.target.value)}>
             <option value="">Select category</option>

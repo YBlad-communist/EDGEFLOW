@@ -7,9 +7,8 @@ import { existsSync, mkdirSync } from "fs";
 import { connectDB } from "./models/index.js";
 import authRoutes from "./routes/auth.js";
 import courseRoutes from "./routes/courses.js";
-import paymentRoutes from "./routes/payments.js";
+import paymentRoutes from "./routes/cloudpayments.js";
 import videoRoutes from "./routes/videos.js";
-import withdrawRoutes from "./routes/withdraw.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -29,7 +28,6 @@ app.use("/api/auth", authRoutes);
 app.use("/api/courses", courseRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/video", videoRoutes);
-app.use("/api/withdraw", withdrawRoutes);
 
 app.get("/api/health", (req, res) => res.json({ status: "ok", uptime: process.uptime() }));
 

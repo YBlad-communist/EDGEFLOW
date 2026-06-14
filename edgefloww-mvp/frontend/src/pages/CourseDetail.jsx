@@ -1,12 +1,10 @@
 import { useState, useEffect } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { api } from "../api.js";
-import { useWeb3 } from "../context/Web3Provider.jsx";
 
 export default function CourseDetail({ user }) {
   const { id } = useParams();
   const nav = useNavigate();
-  const web3 = useWeb3();
   const [course, setCourse] = useState(null);
   const [loading, setLoading] = useState(true);
   const [buying, setBuying] = useState(false);
@@ -14,43 +12,35 @@ export default function CourseDetail({ user }) {
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState("");
 
-  const load = () => api(`/api/courses/${id}`).then(setCourse).catch(() => nav("/")).finally(() => setLoading(false));
+  const load = () => {
+    if (!id) { nav("/"); return; }
+    api(`/api/courses/${id}`).then(setCourse).catch(() => nav("/")).finally(() => setLoading(false));
+  };
   useEffect(() => { load(); }, [id]);
 
-  const handleMetaMaskBuy = async () => {
+  const handleCloudPayment = async () => {
     setBuying(true);
     try {
-      if (!window.ethereum) { setPurchaseMsg("Установите MetaMask для оплаты"); return; }
-      const wallet = await web3.connectWallet();
-      if (!wallet) return;
-
-      const result = await api("/api/payments/create", {
+      const data = await api("/api/payments/create", {
         method: "POST",
-        body: JSON.stringify({ courseId: id, buyerAddress: wallet.account }),
+        body: JSON.stringify({ courseId: id }),
       });
 
-      if (result.chainId && result.chainId !== wallet.chainId) {
-        await web3.switchChain(result.chainId);
+      if (window.cp && window.cp.CloudPayments) {
+        const widget = new window.cp.CloudPayments();
+        widget.charge({
+          publicId: data.publicId,
+          description: data.description,
+          amount: data.amount,
+          currency: data.currency || "RUB",
+          accountId: data.accountId,
+          invoiceId: data.invoiceId,
+          skin: "modern",
+          data: { courseId: id },
+        });
+      } else {
+        setPurchaseMsg(`Оплата через CloudPayments: ${data.amount} ${data.currency} за "${data.description}". Invoice: ${data.invoiceId}`);
       }
-
-      const txHash = await web3.sendUSDT(result.recipientAddress, result.amount, result.tokenAddress);
-      if (!txHash) { setPurchaseMsg("Транзакция не выполнена"); return; }
-
-      const verify = await api("/api/payments/verify", {
-        method: "POST",
-        body: JSON.stringify({ txHash, purchaseId: result.purchaseId }),
-      });
-      setPurchaseMsg(verify.message);
-      load();
-    } catch (err) { setPurchaseMsg(err.message); }
-    setBuying(false);
-  };
-
-  const handleEmulatedBuy = async () => {
-    setBuying(true);
-    try {
-      const result = await api(`/api/payments/buy/${id}`, { method: "POST" });
-      setPurchaseMsg(`Send ${course.priceUSDT} USDT to wallet: ${result.walletAddress || "TBA"}. Then click "I Paid" to confirm.`);
     } catch (err) { setPurchaseMsg(err.message); }
     setBuying(false);
   };
@@ -59,9 +49,9 @@ export default function CourseDetail({ user }) {
     try {
       const purchases = await api("/api/payments/my");
       const pending = purchases.find(p => p.courseId === id && p.status === "pending");
-      if (!pending) return setPurchaseMsg("No pending payment found");
-      await api(`/api/payments/confirm/${pending._id}`, { method: "POST", body: JSON.stringify({ txHash: `tx_${Date.now()}` }) });
-      setPurchaseMsg("Payment confirmed! Course is now available.");
+      if (!pending) return setPurchaseMsg("Нет ожидающих платежей");
+      await api(`/api/payments/confirm/${pending._id}`, { method: "POST" });
+      setPurchaseMsg("Платёж подтверждён! Курс доступен.");
       load();
     } catch (err) { setPurchaseMsg(err.message); }
   };
@@ -87,32 +77,29 @@ export default function CourseDetail({ user }) {
             <span className="text-secondary">⭐ {Number(course.avg_rating || 0).toFixed(1)} ({course.review_count} reviews)</span>
             <span className="text-secondary">{course.lessons?.length || 0} lessons</span>
           </div>
-          <div style={{ fontSize: 28, fontWeight: 800, color: "#7c5cfc", marginBottom: 16 }}>${course.priceUSDT} USDT</div>
+          <div style={{ fontSize: 28, fontWeight: 800, color: "#7c5cfc", marginBottom: 16 }}>{course.priceUSDT} ₽</div>
 
-          {course.purchased && <div className="badge badge-green" style={{ padding: "8px 16px", fontSize: 14 }}>✅ Purchased</div>}
+          {course.purchased && <div className="badge badge-green" style={{ padding: "8px 16px", fontSize: 14 }}>✅ Куплено</div>}
           {!course.purchased && user.role !== "author" && !purchaseMsg && (
             <div className="flex gap-2">
-              <button className="btn btn-primary" onClick={handleMetaMaskBuy} disabled={buying}>
-                {buying ? "Processing..." : "🦊 Pay with MetaMask"}
-              </button>
-              <button className="btn btn-secondary" onClick={handleEmulatedBuy} disabled={buying}>
-                {buying ? "Processing..." : "Buy (Emulated)"}
+              <button className="btn btn-primary" onClick={handleCloudPayment} disabled={buying}>
+                {buying ? "Обработка..." : "💳 Оплатить картой / СБП"}
               </button>
             </div>
           )}
-          {user.role === "author" && user?.id === course.authorId?._id && <span className="text-secondary">You are the author of this course</span>}
+          {user.role === "author" && user?.id === course.authorId?._id && <span className="text-secondary">Вы автор этого курса</span>}
 
           {purchaseMsg && (
             <div className="card mt-4">
               <p style={{ fontSize: 13, marginBottom: 12 }}>{purchaseMsg}</p>
-              {purchaseMsg.includes("Send") && <button className="btn btn-primary btn-sm" onClick={handleConfirmPayment}>✅ I Paid — Confirm</button>}
+              {purchaseMsg.includes("Invoice") && <button className="btn btn-primary btn-sm" onClick={handleConfirmPayment}>✅ Я оплатил — подтвердить</button>}
             </div>
           )}
         </div>
       </div>
 
-      <h2 style={{ fontSize: 18, marginBottom: 16 }}>Lesson List</h2>
-      {course.lessons?.length === 0 && <p className="text-secondary">No lessons yet</p>}
+      <h2 style={{ fontSize: 18, marginBottom: 16 }}>Уроки</h2>
+      {course.lessons?.length === 0 && <p className="text-secondary">Уроков пока нет</p>}
       <div className="card lesson-list" style={{ marginBottom: 24 }}>
         {course.lessons?.map((l, i) => (
           <div key={l._id} className="lesson-item">
@@ -120,14 +107,14 @@ export default function CourseDetail({ user }) {
               <div className="lesson-num">{i + 1}</div>
               <div><b>{l.title}</b><div className="text-secondary">{l.description}</div></div>
             </div>
-            {(course.purchased || course.authorId?._id === user?.id) && <Link to={`/course/${id}/lesson/${l._id}`} className="btn btn-primary btn-sm">Watch</Link>}
+            {(course.purchased || course.authorId?._id === user?.id) && <Link to={`/course/${id}/lesson/${l._id}`} className="btn btn-primary btn-sm">Смотреть</Link>}
             {!course.purchased && course.authorId?._id !== user?.id && <span className="text-secondary">🔒</span>}
           </div>
         ))}
       </div>
 
-      <h2 style={{ fontSize: 18, marginBottom: 16 }}>Reviews</h2>
-      {(!course.reviews || course.reviews.length === 0) && <p className="text-secondary mb-4">No reviews yet</p>}
+      <h2 style={{ fontSize: 18, marginBottom: 16 }}>Отзывы</h2>
+      {(!course.reviews || course.reviews.length === 0) && <p className="text-secondary mb-4">Отзывов пока нет</p>}
       <div className="card" style={{ marginBottom: 24 }}>
         {course.reviews?.map(r => (
           <div key={r._id} className="review-card">
@@ -140,12 +127,12 @@ export default function CourseDetail({ user }) {
 
       {course.purchased && (
         <div className="card">
-          <h3 style={{ fontSize: 15, marginBottom: 12 }}>Leave a Review</h3>
+          <h3 style={{ fontSize: 15, marginBottom: 12 }}>Оставить отзыв</h3>
           <div className="flex gap-2 mb-4">
             {[1,2,3,4,5].map(n => <button key={n} className={`btn ${reviewRating === n ? "btn-primary" : "btn-secondary"} btn-sm`} onClick={() => setReviewRating(n)}>{n}★</button>)}
           </div>
-          <div className="form-group"><textarea className="form-input" value={reviewComment} onChange={e => setReviewComment(e.target.value)} placeholder="Your thoughts..." rows={3} /></div>
-          <button className="btn btn-primary btn-sm" onClick={handleReview}>Submit Review</button>
+          <div className="form-group"><textarea className="form-input" value={reviewComment} onChange={e => setReviewComment(e.target.value)} placeholder="Ваше мнение..." rows={3} /></div>
+          <button className="btn btn-primary btn-sm" onClick={handleReview}>Отправить</button>
         </div>
       )}
     </div>
