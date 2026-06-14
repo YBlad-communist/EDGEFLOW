@@ -10,6 +10,7 @@ import MyCourses from "./pages/MyCourses.jsx";
 import MyLearning from "./pages/MyLearning.jsx";
 import WatchLesson from "./pages/WatchLesson.jsx";
 import AdminPanel from "./pages/AdminPanel.jsx";
+import { Web3Provider } from "./context/Web3Provider.jsx";
 import { api, setToken, clearToken } from "./api.js";
 
 function RequireAdmin({ user, children }) {
@@ -30,7 +31,7 @@ export default function App() {
     <Route path="*" element={<Navigate to="/login" />} />
   </Routes>;
 
-  return <>
+  return <Web3Provider>
     <Navbar user={user} onLogout={() => { clearToken(); setUser(null); }} />
     <div className="page">
       <Routes>
@@ -44,5 +45,5 @@ export default function App() {
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </div>
-  </>;
+  </Web3Provider>;
 }

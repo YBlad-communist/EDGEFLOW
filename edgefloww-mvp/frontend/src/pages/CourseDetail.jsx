@@ -1,10 +1,12 @@
 import { useState, useEffect } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { api } from "../api.js";
+import { useWeb3 } from "../context/Web3Provider.jsx";
 
 export default function CourseDetail({ user }) {
   const { id } = useParams();
   const nav = useNavigate();
+  const web3 = useWeb3();
   const [course, setCourse] = useState(null);
   const [loading, setLoading] = useState(true);
   const [buying, setBuying] = useState(false);
@@ -15,21 +17,50 @@ export default function CourseDetail({ user }) {
   const load = () => api(`/api/courses/${id}`).then(setCourse).catch(() => nav("/")).finally(() => setLoading(false));
   useEffect(() => { load(); }, [id]);
 
-  const handleBuy = async () => {
+  const handleMetaMaskBuy = async () => {
+    setBuying(true);
+    try {
+      if (!window.ethereum) { setPurchaseMsg("Установите MetaMask для оплаты"); return; }
+      const wallet = await web3.connectWallet();
+      if (!wallet) return;
+
+      const result = await api("/api/payments/create", {
+        method: "POST",
+        body: JSON.stringify({ courseId: id, buyerAddress: wallet.account }),
+      });
+
+      if (result.chainId && result.chainId !== wallet.chainId) {
+        await web3.switchChain(result.chainId);
+      }
+
+      const txHash = await web3.sendUSDT(result.recipientAddress, result.amount, result.tokenAddress);
+      if (!txHash) { setPurchaseMsg("Транзакция не выполнена"); return; }
+
+      const verify = await api("/api/payments/verify", {
+        method: "POST",
+        body: JSON.stringify({ txHash, purchaseId: result.purchaseId }),
+      });
+      setPurchaseMsg(verify.message);
+      load();
+    } catch (err) { setPurchaseMsg(err.message); }
+    setBuying(false);
+  };
+
+  const handleEmulatedBuy = async () => {
     setBuying(true);
     try {
       const result = await api(`/api/payments/buy/${id}`, { method: "POST" });
-      setPurchaseMsg(`Send ${course.price} USDT to wallet: ${result.walletAddress || "TBA"}. Then click "I Paid" to confirm.`);
+      setPurchaseMsg(`Send ${course.priceUSDT} USDT to wallet: ${result.walletAddress || "TBA"}. Then click "I Paid" to confirm.`);
     } catch (err) { setPurchaseMsg(err.message); }
     setBuying(false);
   };
 
   const handleConfirmPayment = async () => {
     try {
-      const purchases = await api(`/api/payments/my`);
-      const pending = purchases.find(p => p.course_id === id && p.status === "pending");
+      const purchases = await api("/api/payments/my");
+      const pending = purchases.find(p => p.courseId === id && p.status === "pending");
       if (!pending) return setPurchaseMsg("No pending payment found");
-      await api(`/api/payments/confirm/${pending.id}`, { method: "POST", body: JSON.stringify({ txHash: `tx_${Date.now()}` }) });
+      await api(`/api/payments/confirm/${pending._id}`, { method: "POST", body: JSON.stringify({ txHash: `tx_${Date.now()}` }) });
       setPurchaseMsg("Payment confirmed! Course is now available.");
       load();
     } catch (err) { setPurchaseMsg(err.message); }
@@ -45,7 +76,7 @@ export default function CourseDetail({ user }) {
   return (
     <div className="container animate-in">
       <div className="course-header">
-        {course.cover && <img src={`http://localhost:3001${course.cover}`} alt="" className="cover" />}
+        {course.cover && <img src={course.cover} alt="" className="cover" />}
         {!course.cover && <div style={{ width: "100%", maxWidth: 400, aspectRatio: "16/9", background: "#1a1a2e", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 64 }}>📹</div>}
         <div className="info">
           <h1 style={{ fontSize: 24, marginBottom: 8 }}>{course.title}</h1>
@@ -56,11 +87,20 @@ export default function CourseDetail({ user }) {
             <span className="text-secondary">⭐ {Number(course.avg_rating || 0).toFixed(1)} ({course.review_count} reviews)</span>
             <span className="text-secondary">{course.lessons?.length || 0} lessons</span>
           </div>
-          <div style={{ fontSize: 28, fontWeight: 800, color: "#7c5cfc", marginBottom: 16 }}>${course.price} USDT</div>
+          <div style={{ fontSize: 28, fontWeight: 800, color: "#7c5cfc", marginBottom: 16 }}>${course.priceUSDT} USDT</div>
 
           {course.purchased && <div className="badge badge-green" style={{ padding: "8px 16px", fontSize: 14 }}>✅ Purchased</div>}
-          {!course.purchased && user.role !== "author" && !purchaseMsg && <button className="btn btn-primary" onClick={handleBuy} disabled={buying}>{buying ? "Processing..." : `Buy for $${course.price} USDT`}</button>}
-          {user.role === "author" && <span className="text-secondary">You are the author of this course</span>}
+          {!course.purchased && user.role !== "author" && !purchaseMsg && (
+            <div className="flex gap-2">
+              <button className="btn btn-primary" onClick={handleMetaMaskBuy} disabled={buying}>
+                {buying ? "Processing..." : "🦊 Pay with MetaMask"}
+              </button>
+              <button className="btn btn-secondary" onClick={handleEmulatedBuy} disabled={buying}>
+                {buying ? "Processing..." : "Buy (Emulated)"}
+              </button>
+            </div>
+          )}
+          {user.role === "author" && user?.id === course.authorId?._id && <span className="text-secondary">You are the author of this course</span>}
 
           {purchaseMsg && (
             <div className="card mt-4">
@@ -75,24 +115,24 @@ export default function CourseDetail({ user }) {
       {course.lessons?.length === 0 && <p className="text-secondary">No lessons yet</p>}
       <div className="card lesson-list" style={{ marginBottom: 24 }}>
         {course.lessons?.map((l, i) => (
-          <div key={l.id} className="lesson-item">
+          <div key={l._id} className="lesson-item">
             <div className="flex gap-2" style={{ alignItems: "center" }}>
               <div className="lesson-num">{i + 1}</div>
               <div><b>{l.title}</b><div className="text-secondary">{l.description}</div></div>
             </div>
-            {(course.purchased || course.author_id === user?.id) && <Link to={`/course/${id}/lesson/${l.id}`} className="btn btn-primary btn-sm">Watch</Link>}
-            {!course.purchased && course.author_id !== user?.id && <span className="text-secondary">🔒</span>}
+            {(course.purchased || course.authorId?._id === user?.id) && <Link to={`/course/${id}/lesson/${l._id}`} className="btn btn-primary btn-sm">Watch</Link>}
+            {!course.purchased && course.authorId?._id !== user?.id && <span className="text-secondary">🔒</span>}
           </div>
         ))}
       </div>
 
       <h2 style={{ fontSize: 18, marginBottom: 16 }}>Reviews</h2>
-      {course.reviews?.length === 0 && <p className="text-secondary mb-4">No reviews yet</p>}
+      {(!course.reviews || course.reviews.length === 0) && <p className="text-secondary mb-4">No reviews yet</p>}
       <div className="card" style={{ marginBottom: 24 }}>
         {course.reviews?.map(r => (
-          <div key={r.id} className="review-card">
+          <div key={r._id} className="review-card">
             <div className="stars">{'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}</div>
-            <div style={{ fontSize: 13, marginTop: 4 }}><b>{r.display_name || r.username}</b> <span className="text-secondary">{new Date(r.created_at).toLocaleDateString()}</span></div>
+            <div style={{ fontSize: 13, marginTop: 4 }}><b>{r.display_name || r.username}</b> <span className="text-secondary">{new Date(r.createdAt).toLocaleDateString()}</span></div>
             {r.comment && <p style={{ fontSize: 13, marginTop: 4, color: "#bbb" }}>{r.comment}</p>}
           </div>
         ))}

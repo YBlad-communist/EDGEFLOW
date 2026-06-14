@@ -1,22 +1,63 @@
-import db from "../models/migrate.js";
-import { v4 as uuidv4 } from "uuid";
+import crypto from "crypto";
+import DrmToken from "../models/DrmToken.js";
 
-const TOKEN_LIFETIME_MS = 15 * 60 * 1000; // 15 minutes
+const DRM_SECRET = process.env.DRM_SECRET || "edgefloww_drm_secret_change_in_prod_max32chars!!";
+const TOKEN_TTL_MINUTES = parseInt(process.env.DRM_TOKEN_TTL_MINUTES || "15", 10);
 
-export function drmMiddleware(req, res, next) {
-  const token = req.query.token;
+export function signDRM(lessonId, userId, expiresAt) {
+  const data = `${lessonId}:${userId}:${expiresAt.getTime()}`;
+  return crypto.createHmac("sha256", DRM_SECRET).update(data).digest("hex");
+}
+
+export function verifyDRM(lessonId, userId, expiresAt, signature) {
+  const expected = signDRM(lessonId, userId, expiresAt);
+  if (expected !== signature) return false;
+  if (Date.now() > expiresAt.getTime()) return false;
+  return true;
+}
+
+export async function drmMiddleware(req, res, next) {
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : req.query.token;
+
   if (!token) return res.status(401).json({ error: "Требуется токен доступа" });
-  const row = db.prepare("SELECT * FROM drm_tokens WHERE token = ? AND used = 0 AND expires_at > datetime('now')").get(token);
-  if (!row) return res.status(403).json({ error: "Недействительный или просроченный токен" });
-  db.prepare("UPDATE drm_tokens SET used = 1 WHERE id = ?").run(row.id);
-  req.lessonId = row.lesson_id;
-  req.userId = row.user_id;
+
+  const record = await DrmToken.findOne({ token, used: false });
+  if (!record) return res.status(403).json({ error: "Недействительный или просроченный токен" });
+  if (Date.now() > new Date(record.expiresAt).getTime()) {
+    await DrmToken.deleteOne({ _id: record._id });
+    return res.status(403).json({ error: "Токен истёк" });
+  }
+
+  const domain = process.env.CORS_ORIGIN || "http://localhost:5173";
+  const referer = req.headers.referer || req.headers.origin || "";
+  if (!referer.startsWith(domain.replace(/\/$/, ""))) {
+    return res.status(403).json({ error: "Доступ запрещён: неверный источник запроса" });
+  }
+
+  if (!verifyDRM(record.lessonId.toString(), record.userId.toString(), record.expiresAt, record.signature)) {
+    await DrmToken.deleteOne({ _id: record._id });
+    return res.status(403).json({ error: "Недействительная подпись токена" });
+  }
+
+  record.used = true;
+  await record.save();
+
+  req.lessonId = record.lessonId.toString();
+  req.userId = record.userId.toString();
   next();
 }
 
-export function generateToken(lessonId, userId) {
-  const token = uuidv4();
-  const expiresAt = new Date(Date.now() + TOKEN_LIFETIME_MS).toISOString();
-  db.prepare("INSERT INTO drm_tokens (id, lesson_id, user_id, token, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(uuidv4(), lessonId, userId, token, expiresAt, new Date().toISOString());
-  return token;
+export async function generateToken(lessonId, userId) {
+  const expiresAt = new Date(Date.now() + TOKEN_TTL_MINUTES * 60 * 1000);
+  const rawToken = crypto.randomBytes(24).toString("hex");
+  const signature = signDRM(lessonId, userId, expiresAt);
+  const doc = await DrmToken.create({
+    lessonId,
+    userId,
+    token: rawToken,
+    signature,
+    expiresAt,
+  });
+  return { token: doc.token, expiresAt };
 }

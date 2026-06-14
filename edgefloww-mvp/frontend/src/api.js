@@ -1,4 +1,4 @@
-const API = "http://localhost:3001";
+const API = "";
 let token = localStorage.getItem("eftoken") || null;
 
 export function setToken(t) { token = t; localStorage.setItem("eftoken", t); }

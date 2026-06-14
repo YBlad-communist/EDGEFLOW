@@ -37,9 +37,9 @@ export default function CoursesList({ user }) {
       <div className="grid">
         {courses.map(c => (
           <Link key={c.id} to={`/course/${c.id}`} className="card course-card" style={{ textDecoration: "none", color: "inherit" }}>
-            {c.cover && <img src={`http://localhost:3001${c.cover}`} alt={c.title} style={{ width: "100%", aspectRatio: "16/9", objectFit: "cover", borderRadius: 8, marginBottom: 12 }} />}
+            {c.cover && <img src={c.cover} alt={c.title} style={{ width: "100%", aspectRatio: "16/9", objectFit: "cover", borderRadius: 8, marginBottom: 12 }} />}
             {!c.cover && <div style={{ width: "100%", aspectRatio: "16/9", background: "#1a1a2e", borderRadius: 8, marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32 }}>📹</div>}
-            <div className="price">${c.price} USDT</div>
+            <div className="price">${c.priceUSDT} USDT</div>
             <div className="title">{c.title}</div>
             <div className="meta">by {c.author_display_name || c.author_name} · ⭐ {Number(c.avg_rating || 0).toFixed(1)} ({c.review_count})</div>
             <div className="meta" style={{ marginTop: 4 }}>{c.category && <span className={`badge badge-${c.category === "blockchain" ? "blue" : "green"}`}>{c.category}</span>}</div>
