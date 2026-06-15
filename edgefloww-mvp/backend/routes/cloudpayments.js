@@ -8,7 +8,6 @@ import { authMiddleware } from "../middleware/auth.js";
 const router = Router();
 
 const COMMISSION_PERCENT = parseFloat(process.env.PLATFORM_COMMISSION_PERCENT || "5");
-
 const CLOUDPAYMENTS_PUBLIC_ID = process.env.CLOUDPAYMENTS_PUBLIC_ID || "";
 const CLOUDPAYMENTS_API_SECRET = process.env.CLOUDPAYMENTS_API_SECRET || "";
 
@@ -25,9 +24,12 @@ router.post("/create", authMiddleware, async (req, res) => {
     if (course.authorId.toString() === req.userId)
       return res.status(400).json({ error: "Нельзя купить свой курс" });
 
-    const existing = await Purchase.findOne({ courseId: req.body.courseId, studentId: req.userId });
-    if (existing && existing.status !== "refunded")
-      return res.status(400).json({ error: "Запрос уже существует" });
+    // Cancel old pending purchases for this course+student
+    await Purchase.deleteMany({
+      courseId: req.body.courseId,
+      studentId: req.userId,
+      status: "pending",
+    });
 
     const purchase = await Purchase.create({
       courseId: req.body.courseId,
@@ -121,7 +123,7 @@ router.get("/pending", authMiddleware, async (req, res) => {
       .populate("studentId", "email username")
       .sort({ createdAt: -1 }).lean();
     res.json(pending.map(p => ({
-      _id: p._id, id: p._id,
+      _id: p._id,
       course_title: p.courseId?.title,
       student_email: p.studentId?.email,
       student_username: p.studentId?.username,

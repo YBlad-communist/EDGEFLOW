@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 import Course from "../models/Course.js";
 import Review from "../models/Review.js";
 import Purchase from "../models/Purchase.js";
+import User from "../models/User.js";
 import { authMiddleware, optionalAuth } from "../middleware/auth.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -25,8 +26,8 @@ const upload = multer({
   storage,
   limits: { fileSize: (parseInt(process.env.MAX_FILE_SIZE_MB || "500", 10)) * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    if (file.fieldname === "video" && !file.mimetype.startsWith("video/")) return cb(new Error("Только видеофайлы"));
-    if (file.fieldname === "cover" && !file.mimetype.startsWith("image/")) return cb(new Error("Только изображения"));
+    if (file.fieldname === "video" && !file.mimetype.startsWith("video/")) return cb(new Error("Only video files"));
+    if (file.fieldname === "cover" && !file.mimetype.startsWith("image/")) return cb(new Error("Only images"));
     cb(null, true);
   },
 });
@@ -103,7 +104,7 @@ router.get("/:id", optionalAuth, async (req, res) => {
     const course = await Course.findById(req.params.id)
       .populate("authorId", "username displayName avatar bio")
       .lean();
-    if (!course) return res.status(404).json({ error: "Курс не найден" });
+    if (!course) return res.status(404).json({ error: "Course not found" });
 
     const [avgRating, reviewCount, reviews, purchase] = await Promise.all([
       Review.aggregate([{ $match: { courseId: course._id } }, { $group: { _id: null, avg: { $avg: "$rating" } } }]),
@@ -128,9 +129,9 @@ router.get("/:id", optionalAuth, async (req, res) => {
 
 router.post("/", authMiddleware, async (req, res) => {
   try {
-    if (req.userRole !== "author") return res.status(403).json({ error: "Только автор может создавать курсы" });
+    if (req.userRole !== "author") return res.status(403).json({ error: "Only authors can create courses" });
     const { title, description, priceUSDT, category } = req.body;
-    if (!title || !priceUSDT) return res.status(400).json({ error: "Название и цена обязательны" });
+    if (!title || !priceUSDT) return res.status(400).json({ error: "Title and price required" });
     const course = await Course.create({
       authorId: req.userId, title, description: description || "",
       priceUSDT, category: category || "",
@@ -142,8 +143,8 @@ router.post("/", authMiddleware, async (req, res) => {
 router.put("/:id", authMiddleware, async (req, res) => {
   try {
     const course = await Course.findById(req.params.id);
-    if (!course) return res.status(404).json({ error: "Курс не найден" });
-    if (course.authorId.toString() !== req.userId) return res.status(403).json({ error: "Нет прав" });
+    if (!course) return res.status(404).json({ error: "Course not found" });
+    if (course.authorId.toString() !== req.userId) return res.status(403).json({ error: "No permission" });
     const { title, description, priceUSDT, category } = req.body;
     if (title !== undefined) course.title = title;
     if (description !== undefined) course.description = description;
@@ -157,8 +158,8 @@ router.put("/:id", authMiddleware, async (req, res) => {
 router.delete("/:id", authMiddleware, async (req, res) => {
   try {
     const course = await Course.findById(req.params.id);
-    if (!course) return res.status(404).json({ error: "Курс не найден" });
-    if (course.authorId.toString() !== req.userId) return res.status(403).json({ error: "Нет прав" });
+    if (!course) return res.status(404).json({ error: "Course not found" });
+    if (course.authorId.toString() !== req.userId) return res.status(403).json({ error: "No permission" });
     await Course.deleteOne({ _id: req.params.id });
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -168,7 +169,7 @@ router.post("/:id/cover", authMiddleware, upload.single("cover"), async (req, re
   try {
     const course = await Course.findById(req.params.id);
     if (!course || course.authorId.toString() !== req.userId)
-      return res.status(404).json({ error: "Курс не найден" });
+      return res.status(404).json({ error: "Course not found" });
     course.cover = `/uploads/covers/${req.file.filename}`;
     await course.save();
     res.json({ cover: course.cover });
@@ -179,9 +180,9 @@ router.post("/:id/lessons", authMiddleware, upload.single("video"), async (req, 
   try {
     const course = await Course.findById(req.params.id);
     if (!course || course.authorId.toString() !== req.userId)
-      return res.status(404).json({ error: "Курс не найден" });
+      return res.status(404).json({ error: "Course not found" });
     const { title, description } = req.body;
-    if (!title) return res.status(400).json({ error: "Название урока обязательно" });
+    if (!title) return res.status(400).json({ error: "Lesson title required" });
     const sortOrder = course.lessons.length > 0
       ? Math.max(...course.lessons.map(l => l.sortOrder)) + 1 : 0;
     const videoPath = req.file ? `/uploads/videos/${req.file.filename}` : null;
@@ -196,7 +197,7 @@ router.delete("/:courseId/lessons/:lessonId", authMiddleware, async (req, res) =
   try {
     const course = await Course.findById(req.params.courseId);
     if (!course || course.authorId.toString() !== req.userId)
-      return res.status(404).json({ error: "Курс не найден" });
+      return res.status(404).json({ error: "Course not found" });
     course.lessons.pull({ _id: req.params.lessonId });
     await course.save();
     res.json({ success: true });
@@ -206,13 +207,39 @@ router.delete("/:courseId/lessons/:lessonId", authMiddleware, async (req, res) =
 router.post("/:id/review", authMiddleware, async (req, res) => {
   try {
     const { rating, comment } = req.body;
-    if (!rating || rating < 1 || rating > 5) return res.status(400).json({ error: "Рейтинг от 1 до 5" });
+    if (!rating || rating < 1 || rating > 5) return res.status(400).json({ error: "Rating 1-5" });
     const purchase = await Purchase.findOne({ courseId: req.params.id, studentId: req.userId, status: "completed" });
-    if (!purchase) return res.status(403).json({ error: "Только купившие курс могут оставить отзыв" });
+    if (!purchase) return res.status(403).json({ error: "Only buyers can review" });
     const existing = await Review.findOne({ courseId: req.params.id, userId: req.userId });
-    if (existing) return res.status(409).json({ error: "Вы уже оставили отзыв" });
+    if (existing) return res.status(409).json({ error: "Already reviewed" });
     await Review.create({ courseId: req.params.id, userId: req.userId, rating, comment: comment || "" });
     res.status(201).json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.post("/:id/buy", authMiddleware, async (req, res) => {
+  try {
+    const course = await Course.findById(req.params.id);
+    if (!course) return res.status(404).json({ error: "Course not found" });
+    if (course.authorId.toString() === req.userId)
+      return res.status(400).json({ error: "Cannot buy your own course" });
+    await Purchase.deleteMany({ courseId: course._id, studentId: req.userId });
+    const user = await User.findById(req.userId);
+    if (!user || user.balanceRub < course.priceUSDT)
+      return res.status(400).json({ error: "Недостаточно средств на балансе" });
+    user.balanceRub -= course.priceUSDT;
+    await user.save();
+    const commission = course.priceUSDT * (parseInt(process.env.PLATFORM_COMMISSION_PERCENT) || 5) / 100;
+    const authorAmount = course.priceUSDT - commission;
+    await User.updateOne({ _id: course.authorId }, { $inc: { balanceRub: authorAmount } });
+    const adminUser = await User.findOne({ isAdmin: true });
+    if (adminUser) await User.updateOne({ _id: adminUser._id }, { $inc: { balanceRub: commission } });
+    await Purchase.create({
+      courseId: course._id, studentId: req.userId,
+      amount: course.priceUSDT, status: "completed",
+      paymentSystem: "balance",
+    });
+    res.json({ success: true, balanceRub: user.balanceRub, message: "Курс куплен!" });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api.js";
 
-export default function CreateCourse({ user }) {
+export default function CreateCourse() {
   const nav = useNavigate();
   const [form, setForm] = useState({ title: "", description: "", price: 10, category: "" });
   const [cover, setCover] = useState(null);
@@ -10,13 +10,14 @@ export default function CreateCourse({ user }) {
   const [lessonForm, setLessonForm] = useState({ title: "", description: "" });
   const [video, setVideo] = useState(null);
 
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   const handleCreate = async (e) => {
     e.preventDefault();
     const course = await api("/api/courses", { method: "POST", body: JSON.stringify(form) });
     if (cover) {
-      const fd = new FormData(); fd.append("cover", cover);
+      const fd = new FormData();
+      fd.append("cover", cover);
       await api(`/api/courses/${course.id}/cover`, { method: "POST", body: fd });
     }
     setCourseId(course.id);
@@ -35,17 +36,25 @@ export default function CreateCourse({ user }) {
 
   if (courseId) {
     return (
-      <div className="container animate-in" style={{ maxWidth: 600 }}>
-        <h1 style={{ marginBottom: 20 }}>Add Lessons</h1>
-        <p className="text-secondary mb-4">Course created! Now add your lessons.</p>
-
-        <form onSubmit={handleAddLesson}>
-          <div className="form-group"><label className="form-label">Lesson Title</label><input value={lessonForm.title} onChange={e => setLessonForm(f => ({ ...f, title: e.target.value }))} required /></div>
-          <div className="form-group"><label className="form-label">Description</label><textarea value={lessonForm.description} onChange={e => setLessonForm(f => ({ ...f, description: e.target.value }))} rows={2} /></div>
-          <div className="form-group"><label className="form-label">Video (mp4)</label><input type="file" accept="video/*" onChange={e => setVideo(e.target.files[0])} /></div>
+      <div className="max-w-lg mx-auto px-4 py-8">
+        <h1 className="text-2xl font-bold mb-4">Добавить уроки</h1>
+        <p className="text-sm text-secondary mb-4">Курс создан! Теперь добавьте уроки.</p>
+        <form onSubmit={handleAddLesson} className="space-y-4">
+          <div>
+            <label className="text-xs font-semibold text-secondary block mb-1">Название урока</label>
+            <input value={lessonForm.title} onChange={(e) => setLessonForm((f) => ({ ...f, title: e.target.value }))} required className="w-full bg-surface border border-edge rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent" />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-secondary block mb-1">Описание</label>
+            <textarea value={lessonForm.description} onChange={(e) => setLessonForm((f) => ({ ...f, description: e.target.value }))} rows={2} className="w-full bg-surface border border-edge rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent resize-vertical" />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-secondary block mb-1">Видео (mp4)</label>
+            <input type="file" accept="video/*" onChange={(e) => setVideo(e.target.files[0])} className="w-full text-sm text-secondary file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-accent file:text-white hover:file:bg-accent-hover" />
+          </div>
           <div className="flex gap-2">
-            <button type="submit" className="btn btn-primary">Add Lesson</button>
-            <button type="button" className="btn btn-secondary" onClick={() => nav(`/course/${courseId}`)}>Finish → View Course</button>
+            <button type="submit" className="bg-accent text-white font-semibold rounded-lg px-4 py-2 text-sm hover:bg-accent-hover transition">Добавить урок</button>
+            <button type="button" className="bg-surface border border-edge text-secondary font-semibold rounded-lg px-4 py-2 text-sm hover:text-white transition" onClick={() => nav(`/courses/${courseId}`)}>Готово</button>
           </div>
         </form>
       </div>
@@ -53,15 +62,25 @@ export default function CreateCourse({ user }) {
   }
 
   return (
-    <div className="container animate-in" style={{ maxWidth: 600 }}>
-      <h1 style={{ marginBottom: 20 }}>Create Course</h1>
-      <form onSubmit={handleCreate}>
-        <div className="form-group"><label className="form-label">Title</label><input value={form.title} onChange={e => set("title", e.target.value)} placeholder="e.g. Web3 for Beginners" required /></div>
-        <div className="form-group"><label className="form-label">Description</label><textarea value={form.description} onChange={e => set("description", e.target.value)} rows={4} placeholder="Describe your course..." /></div>
-        <div className="form-group"><label className="form-label">Price (RUB)</label><input type="number" value={form.price} onChange={e => set("price", Number(e.target.value))} min={1} /></div>
-        <div className="form-group"><label className="form-label">Category</label>
-          <select value={form.category} onChange={e => set("category", e.target.value)}>
-            <option value="">Select category</option>
+    <div className="max-w-lg mx-auto px-4 py-8">
+      <h1 className="text-2xl font-bold mb-6">Создать курс</h1>
+      <form onSubmit={handleCreate} className="space-y-4">
+        <div>
+          <label className="text-xs font-semibold text-secondary block mb-1">Название</label>
+          <input value={form.title} onChange={(e) => set("title", e.target.value)} placeholder="e.g. Web3 для начинающих" required className="w-full bg-surface border border-edge rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent" />
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-secondary block mb-1">Описание</label>
+          <textarea value={form.description} onChange={(e) => set("description", e.target.value)} rows={4} placeholder="Опишите курс..." className="w-full bg-surface border border-edge rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent resize-vertical" />
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-secondary block mb-1">Цена (₽)</label>
+          <input type="number" value={form.price} onChange={(e) => set("price", Number(e.target.value))} min={1} className="w-full bg-surface border border-edge rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent" />
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-secondary block mb-1">Категория</label>
+          <select value={form.category} onChange={(e) => set("category", e.target.value)} className="w-full bg-surface border border-edge rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent">
+            <option value="">Выберите категорию</option>
             <option value="blockchain">Blockchain</option>
             <option value="web3">Web3</option>
             <option value="defi">DeFi</option>
@@ -71,8 +90,11 @@ export default function CreateCourse({ user }) {
             <option value="business">Business</option>
           </select>
         </div>
-        <div className="form-group"><label className="form-label">Cover Image</label><input type="file" accept="image/*" onChange={e => setCover(e.target.files[0])} /></div>
-        <button type="submit" className="btn btn-primary btn-block">Create Course</button>
+        <div>
+          <label className="text-xs font-semibold text-secondary block mb-1">Обложка</label>
+          <input type="file" accept="image/*" onChange={(e) => setCover(e.target.files[0])} className="w-full text-sm text-secondary file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-accent file:text-white hover:file:bg-accent-hover" />
+        </div>
+        <button type="submit" className="w-full bg-accent text-white font-semibold rounded-lg px-4 py-2.5 text-sm hover:bg-accent-hover transition">Создать курс</button>
       </form>
     </div>
   );

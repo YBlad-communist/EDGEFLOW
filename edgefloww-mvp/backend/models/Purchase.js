@@ -1,15 +1,19 @@
 import mongoose from "mongoose";
 
-const purchaseSchema = new mongoose.Schema({
-  courseId:     { type: mongoose.Schema.Types.ObjectId, ref: "Course", required: true },
-  studentId:    { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-  amount:       { type: Number, required: true },
-  status:       { type: String, enum: ["pending", "completed", "refunded"], default: "pending" },
-  paymentSystem:{ type: String, default: "cloudpayments" },
-  paymentId:    { type: String, default: "" },
-  confirmedAt:  { type: Date, default: null },
-}, { timestamps: true });
+const purchaseSchema = new mongoose.Schema(
+  {
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    itemId: { type: mongoose.Schema.Types.ObjectId, required: true },
+    itemType: { type: String, enum: ["course", "broadcast"], required: true },
+    amount: { type: Number, required: true },
+    status: { type: String, enum: ["pending", "completed", "failed"], default: "pending" },
+    paymentId: { type: String },
+  },
+  { timestamps: true }
+);
 
-purchaseSchema.index({ courseId: 1, studentId: 1 }, { unique: true });
+purchaseSchema.index({ userId: 1 });
+purchaseSchema.index({ itemId: 1 });
+purchaseSchema.index({ paymentId: 1 });
 
 export default mongoose.model("Purchase", purchaseSchema);

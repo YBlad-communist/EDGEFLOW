@@ -1,0 +1,14 @@
+node_modules/
+edgeflow/
+.env
+.env.local
+.env.production
+dist/
+build/
+.vscode/
+.idea/
+*.log
+uploads/
+coverage/
+__pycache__/
+*.pyc

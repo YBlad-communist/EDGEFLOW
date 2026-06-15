@@ -1,0 +1,13 @@
+version: "3.8"
+
+services:
+  srs:
+    image: ossrs/srs:5
+    restart: unless-stopped
+    ports:
+      - "1935:1935"
+      - "1985:1985"
+      - "8080:8080"
+    volumes:
+      - ./srs.conf:/usr/local/srs/conf/srs.conf
+    command: ./objs/srs -c /usr/local/srs/conf/srs.conf
