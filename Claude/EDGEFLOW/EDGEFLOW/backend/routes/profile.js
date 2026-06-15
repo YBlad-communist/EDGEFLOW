@@ -1,76 +1,58 @@
-const router = require('express').Router();
-const { body, validationResult } = require('express-validator');
-const auth = require('../middleware/auth');
-const User = require('../models/User');
+import { Router } from "express";
+import { z } from "zod";
+import User from "../models/User.js";
+import { authMiddleware } from "../middleware/auth.js";
+import { validate } from "../middleware/validate.js";
 
-// GET /api/profile/me
-router.get('/me', auth, async (req, res) => {
-  res.json(req.user.toPublic());
+const router = Router();
+
+const teacherProfileSchema = z.object({
+  fullName: z.string().min(1, "ФИО обязательно"),
+  education: z.string().min(1, "Образование обязательно"),
+  experience: z.number().min(0).default(0),
+  specialization: z.string().min(1, "Специализация обязательна"),
+  hourlyRate: z.number().min(0).default(0),
+  bio: z.string().default(""),
+  certificateUrls: z.array(z.string()).default([]),
 });
 
-// PUT /api/profile/teacher
-router.put(
-  '/teacher',
-  auth,
-  [
-    body('fullName').trim().notEmpty().withMessage('ФИО обязательно'),
-    body('education').trim().notEmpty().withMessage('Образование обязательно'),
-    body('experience').trim().notEmpty().withMessage('Опыт обязателен'),
-    body('specialization').trim().notEmpty().withMessage('Специализация обязательна'),
-    body('hourlyRate').isFloat({ min: 0 }).withMessage('Ставка должна быть >= 0'),
-    body('bio').trim().notEmpty().withMessage('Биография обязательна'),
-  ],
-  async (req, res, next) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
-      }
-      const { fullName, education, experience, specialization, hourlyRate, bio, certificateUrls } = req.body;
-
-      if (req.user.role !== 'teacher') {
-        return res.status(403).json({ error: 'Анкета только для учителей' });
-      }
-
-      const profile = {
-        fullName,
-        education,
-        experience,
-        specialization,
-        hourlyRate: Number(hourlyRate),
-        bio,
-        certificateUrls: certificateUrls || [],
-        isComplete: true,
-      };
-
-      const user = await User.findByIdAndUpdate(
-        req.user._id,
-        { teacherProfile: profile, mode: 'learn_and_teach' },
-        { new: true }
-      ).select('-password');
-
-      res.json(user.toPublic());
-    } catch (err) {
-      next(err);
-    }
-  }
-);
-
-// PUT /api/profile/mode
-router.put('/mode', auth, async (req, res, next) => {
+router.get("/teacher", authMiddleware, async (req, res, next) => {
   try {
-    const { mode } = req.body;
-    if (!['learn_only', 'learn_and_teach'].includes(mode)) {
-      return res.status(400).json({ error: 'Неверный режим' });
-    }
-    if (mode === 'learn_and_teach' && req.user.role !== 'teacher') {
-      return res.status(403).json({ error: 'Режим "учить" доступен только учителям' });
-    }
-    const user = await User.findByIdAndUpdate(req.user._id, { mode }, { new: true }).select('-password');
-    res.json(user.toPublic());
-  } catch (err) {
-    next(err);
-  }
+    const user = await User.findById(req.userId);
+    if (user.role !== "teacher") return res.status(403).json({ error: "Не учитель" });
+    res.json(user.teacherProfile || {});
+  } catch (err) { next(err); }
 });
 
-module.exports = router;
+router.post("/teacher", authMiddleware, validate(teacherProfileSchema), async (req, res, next) => {
+  try {
+    const user = await User.findById(req.userId);
+    if (user.role !== "teacher") return res.status(403).json({ error: "Не учитель" });
+    const data = req.validatedBody;
+    user.teacherProfile = { ...data, isComplete: true };
+    await user.save();
+    res.json({ message: "Анкета сохранена", profile: user.teacherProfile });
+  } catch (err) { next(err); }
+});
+
+router.get("/mode", authMiddleware, async (req, res, next) => {
+  try {
+    const user = await User.findById(req.userId);
+    res.json({ mode: user.mode });
+  } catch (err) { next(err); }
+});
+
+const modeSchema = z.object({
+  mode: z.enum(["learn_only", "learn_and_teach"]),
+});
+
+router.post("/mode", authMiddleware, validate(modeSchema), async (req, res, next) => {
+  try {
+    const user = await User.findById(req.userId);
+    user.mode = req.validatedBody.mode;
+    await user.save();
+    res.json({ message: "Режим обновлён", mode: user.mode });
+  } catch (err) { next(err); }
+});
+
+export default router;

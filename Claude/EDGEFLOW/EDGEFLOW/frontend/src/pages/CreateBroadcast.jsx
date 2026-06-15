@@ -1,62 +1,75 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import toast from 'react-hot-toast';
-import api from '../api';
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { api } from "../api.js";
 
 export default function CreateBroadcast() {
-  const navigate = useNavigate();
-  const [form, setForm] = useState({ title: '', description: '', price: '0', startTime: '', tags: '' });
+  const nav = useNavigate();
+  const [form, setForm] = useState({ title: "", description: "", price: 0 });
+  const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
-  const handleSubmit = async (e) => {
+  const handleCreate = async (e) => {
     e.preventDefault();
     setLoading(true);
+    setError("");
     try {
-      const payload = {
-        ...form,
-        price: Number(form.price) || 0,
-        tags: form.tags.split(',').map((t) => t.trim()).filter(Boolean),
-        startTime: form.startTime || undefined,
-      };
-      const res = await api.post('/broadcasts', payload);
-      toast.success('Трансляция создана!');
-      navigate(`/broadcasts/${res.data._id}`);
-    } catch (err) {
-      toast.error(err?.response?.data?.error || err?.response?.data?.errors?.[0]?.msg || 'Ошибка');
-    } finally {
-      setLoading(false);
-    }
+      const data = await api("/api/broadcasts/create", { method: "POST", body: JSON.stringify(form) });
+      setResult(data);
+    } catch (err) { setError(err.message); }
+    setLoading(false);
   };
 
-  return (
-    <div className="max-w-xl mx-auto px-4 py-8">
-      <h1 className="text-2xl font-bold mb-6">Новая трансляция</h1>
+  if (result) {
+    return (
+      <div className="max-w-lg mx-auto px-4 py-8">
+        <h1 className="text-2xl font-bold mb-4">Трансляция создана!</h1>
+        <div className="bg-card border border-edge rounded-xl p-6 space-y-4">
+          <div>
+            <div className="text-xs text-secondary mb-1">Stream Key</div>
+            <div className="text-lg font-bold break-all">{result.streamKey}</div>
+          </div>
+          <div>
+            <div className="text-xs text-secondary mb-1">RTMP URL</div>
+            <div className="text-base font-semibold break-all">{result.rtmpUrl}</div>
+          </div>
+          <div className="bg-[#0d0d1a] border border-edge rounded-lg p-4">
+            <h3 className="text-sm font-semibold mb-2">Настройки OBS</h3>
+            <ul className="text-xs text-secondary space-y-1 list-disc pl-4">
+              <li><b>Сервер:</b> {result.rtmpUrl?.replace(/\/[^/]+$/, "")}</li>
+              <li><b>Ключ потока:</b> {result.streamKey}</li>
+            </ul>
+          </div>
+          <div className="flex gap-2">
+            <button className="bg-accent text-white font-semibold rounded-lg px-4 py-2 text-sm hover:bg-accent-hover transition" onClick={() => nav(`/broadcasts/${result.id}`)}>Перейти к трансляции</button>
+            <button className="bg-surface border border-edge text-secondary font-semibold rounded-lg px-4 py-2 text-sm hover:text-white transition" onClick={() => nav("/my-broadcasts")}>Мои трансляции</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-      <form onSubmit={handleSubmit} className="card space-y-4">
+  return (
+    <div className="max-w-lg mx-auto px-4 py-8">
+      <h1 className="text-2xl font-bold mb-6">Создать трансляцию</h1>
+      {error && <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm rounded-lg px-4 py-2 mb-4 text-center">{error}</div>}
+      <form onSubmit={handleCreate} className="space-y-4">
         <div>
-          <label className="label">Название *</label>
-          <input name="title" className="input" value={form.title} onChange={handleChange} required />
+          <label className="text-xs font-semibold text-secondary block mb-1">Название</label>
+          <input value={form.title} onChange={(e) => set("title", e.target.value)} placeholder="e.g. Вебинар по React" required className="w-full bg-surface border border-edge rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent" />
         </div>
         <div>
-          <label className="label">Описание</label>
-          <textarea name="description" className="input resize-none" rows={3} value={form.description} onChange={handleChange} />
+          <label className="text-xs font-semibold text-secondary block mb-1">Описание</label>
+          <textarea value={form.description} onChange={(e) => set("description", e.target.value)} rows={3} className="w-full bg-surface border border-edge rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent resize-vertical" />
         </div>
         <div>
-          <label className="label">Цена (₽, 0 = бесплатно)</label>
-          <input name="price" type="number" min="0" className="input" value={form.price} onChange={handleChange} />
+          <label className="text-xs font-semibold text-secondary block mb-1">Цена (₽) — 0 = бесплатно</label>
+          <input type="number" value={form.price} onChange={(e) => set("price", Number(e.target.value))} min={0} className="w-full bg-surface border border-edge rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent" />
         </div>
-        <div>
-          <label className="label">Время начала</label>
-          <input name="startTime" type="datetime-local" className="input" value={form.startTime} onChange={handleChange} />
-        </div>
-        <div>
-          <label className="label">Теги (через запятую)</label>
-          <input name="tags" className="input" value={form.tags} onChange={handleChange} placeholder="javascript, react, фронтенд" />
-        </div>
-        <button type="submit" className="btn-primary w-full" disabled={loading}>
-          {loading ? 'Создание...' : 'Создать трансляцию'}
+        <button type="submit" className="w-full bg-accent text-white font-semibold rounded-lg px-4 py-2.5 text-sm hover:bg-accent-hover transition disabled:opacity-50" disabled={loading}>
+          {loading ? "Создание..." : "Создать трансляцию"}
         </button>
       </form>
     </div>

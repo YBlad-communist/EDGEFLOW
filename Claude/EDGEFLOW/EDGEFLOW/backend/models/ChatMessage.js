@@ -1,13 +1,15 @@
-const mongoose = require('mongoose');
+import mongoose from "mongoose";
 
-const chatMessageSchema = new mongoose.Schema({
-  broadcastId: { type: mongoose.Schema.Types.ObjectId, ref: 'Broadcast', required: true, index: true },
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  username: { type: String, required: true },
-  message: { type: String, required: true, trim: true, maxlength: 500 },
-  timestamp: { type: Date, default: Date.now },
-});
+const chatMessageSchema = new mongoose.Schema(
+  {
+    broadcastId: { type: mongoose.Schema.Types.ObjectId, ref: "Broadcast", required: true },
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    username: { type: String, default: "" },
+    message: { type: String, required: true },
+  },
+  { timestamps: true }
+);
 
-chatMessageSchema.index({ broadcastId: 1, timestamp: 1 });
+chatMessageSchema.index({ broadcastId: 1, createdAt: -1 });
 
-module.exports = mongoose.model('ChatMessage', chatMessageSchema);
+export default mongoose.model("ChatMessage", chatMessageSchema);

@@ -1,43 +1,17 @@
 #!/bin/bash
 set -e
 
-echo "🚀 EdgeFlow deploy starting..."
+echo "Deploying EdgeFlow..."
 
-# Переходим в директорию проекта
-cd "$(dirname "$0")"
+cd /opt/edgeflow
 
-# Проверяем наличие .env
-if [ ! -f .env ]; then
-  echo "❌ .env файл не найден! Скопируйте .env.example в .env и заполните данные."
-  exit 1
-fi
-
-# Получаем свежий код
-echo "📦 Pulling latest changes..."
 git pull origin main
 
-# Пересобираем и перезапускаем
-echo "🔨 Building and restarting services..."
-docker-compose -f docker-compose.prod.yml pull mongodb srs nginx-proxy certbot
-docker-compose -f docker-compose.prod.yml up -d --build backend frontend
+cp backend/.env.example backend/.env || true
 
-# Ждём backend
-echo "⏳ Waiting for backend to be ready..."
-sleep 5
-for i in $(seq 1 10); do
-  if curl -sf http://localhost:5000/health > /dev/null 2>&1; then
-    echo "✅ Backend is healthy"
-    break
-  fi
-  echo "   Attempt $i/10..."
-  sleep 3
-done
+docker compose -f docker-compose.prod.yml down
+docker compose -f docker-compose.prod.yml up -d --build
 
-# Убираем старые образы
-echo "🧹 Pruning old images..."
 docker image prune -f
 
-echo "✅ Deploy complete! EdgeFlow is running."
-echo "   Frontend: http://localhost"
-echo "   API:      http://localhost/api"
-echo "   RTMP:     rtmp://$(hostname):1935/live"
+echo "Deploy complete!"

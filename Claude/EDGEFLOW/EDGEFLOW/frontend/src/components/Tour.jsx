@@ -1,73 +1,48 @@
-import { useState } from 'react';
-import Joyride, { STATUS } from 'react-joyride';
+import { useState, useEffect } from "react";
+import { useAuth } from "../contexts/AuthContext.jsx";
 
-const STUDENT_STEPS = [
-  {
-    target: 'body',
-    content: 'Добро пожаловать в EdgeFlow — биржу живых знаний! Давайте покажем, как всё устроено.',
-    placement: 'center',
-  },
-  {
-    target: 'nav',
-    content: 'Здесь навигация платформы. Все трансляции доступны на главной.',
-  },
-  {
-    target: '[data-tour="broadcasts-list"]',
-    content: 'Это список доступных трансляций. Кликните на любую, чтобы посмотреть детали.',
-  },
-];
+export default function Tour() {
+  const { user } = useAuth();
+  const [step, setStep] = useState(-1);
 
-const TEACHER_STEPS = [
-  {
-    target: 'body',
-    content: 'Вы зарегистрированы как учитель! Сначала заполните анкету, чтобы начать вести трансляции.',
-    placement: 'center',
-  },
-  {
-    target: '[data-tour="teacher-profile-link"]',
-    content: 'Нажмите здесь, чтобы заполнить анкету учителя.',
-  },
-  {
-    target: '[data-tour="create-broadcast"]',
-    content: 'После заполнения анкеты здесь появится кнопка создания трансляции.',
-  },
-];
-
-export default function Tour({ role }) {
-  const storageKey = `edgeflow_tour_done_${role}`;
-  const [run, setRun] = useState(() => !localStorage.getItem(storageKey));
-
-  const steps = role === 'teacher' ? TEACHER_STEPS : STUDENT_STEPS;
-
-  const handleCallback = ({ status }) => {
-    if ([STATUS.FINISHED, STATUS.SKIPPED].includes(status)) {
-      localStorage.setItem(storageKey, '1');
-      setRun(false);
+  useEffect(() => {
+    if (user && !localStorage.getItem("tour_done")) {
+      const timer = setTimeout(() => setStep(0), 1500);
+      return () => clearTimeout(timer);
     }
-  };
+  }, [user]);
+
+  const steps = [
+    { title: "Добро пожаловать в EdgeFlow!", desc: "Платформа для обучения и преподавания." },
+    { title: "Курсы и трансляции", desc: "Просматривайте курсы, покупайте доступ и учитесь." },
+    { title: "Для учителей", desc: "Создавайте курсы и проводите живые трансляции." },
+  ];
+
+  const close = () => { localStorage.setItem("tour_done", "1"); setStep(-1); };
+
+  if (step < 0 || step >= steps.length) return null;
 
   return (
-    <Joyride
-      steps={steps}
-      run={run}
-      continuous
-      showSkipButton
-      callback={handleCallback}
-      styles={{
-        options: {
-          backgroundColor: '#1f2937',
-          textColor: '#f9fafb',
-          primaryColor: '#6366f1',
-          zIndex: 10000,
-        },
-      }}
-      locale={{
-        back: 'Назад',
-        close: 'Закрыть',
-        last: 'Готово',
-        next: 'Далее',
-        skip: 'Пропустить',
-      }}
-    />
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60">
+      <div className="bg-card border border-edge rounded-xl p-6 max-w-sm w-full mx-4 shadow-2xl">
+        <div className="text-accent text-3xl font-extrabold mb-2 text-center">EdgeFlow</div>
+        <h3 className="text-lg font-bold text-center mb-1">{steps[step].title}</h3>
+        <p className="text-sm text-secondary text-center mb-6">{steps[step].desc}</p>
+        <div className="flex items-center justify-between">
+          <button onClick={close} className="text-xs text-secondary hover:text-white transition">Пропустить</button>
+          <div className="flex gap-1">
+            {steps.map((_, i) => (
+              <div key={i} className={`w-2 h-2 rounded-full ${i === step ? "bg-accent" : "bg-border"}`} />
+            ))}
+          </div>
+          <button
+            onClick={() => step < steps.length - 1 ? setStep(step + 1) : close()}
+            className="bg-accent text-white text-sm font-semibold px-4 py-1.5 rounded-lg hover:bg-accent-hover transition"
+          >
+            {step < steps.length - 1 ? "Далее" : "Готово!"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

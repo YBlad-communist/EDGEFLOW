@@ -1,121 +1,98 @@
-require('dotenv').config();
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const mongoose = require('mongoose');
-const cors = require('cors');
-const compression = require('compression');
-const rateLimit = require('express-rate-limit');
-const winston = require('winston');
+import "dotenv/config";
+import express from "express";
+import http from "http";
+import cors from "cors";
+import compression from "compression";
+import cookieParser from "cookie-parser";
+import rateLimit from "express-rate-limit";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
+import { existsSync, mkdirSync } from "fs";
+import { connectDB } from "./models/index.js";
+import User from "./models/User.js";
+import authRoutes from "./routes/auth.js";
+import profileRoutes from "./routes/profile.js";
+import courseRoutes from "./routes/courses.js";
+import broadcastRoutes from "./routes/broadcasts.js";
+import paymentRoutes from "./routes/payments.js";
+import userRoutes from "./routes/user.js";
+import { errorHandler } from "./middleware/errorHandler.js";
+import { setupChatSocket } from "./websocket/chatServer.js";
+import config from "./config/index.js";
 
-// ─── Logger ───────────────────────────────────────────────────────────────────
-const logger = winston.createLogger({
-  level: 'info',
-  format: winston.format.combine(
-    winston.format.timestamp(),
-    winston.format.json()
-  ),
-  transports: [
-    new winston.transports.Console(),
-  ],
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+["uploads/videos", "uploads/covers", "uploads/recordings"].forEach((d) => {
+  const p = join(__dirname, d);
+  if (!existsSync(p)) mkdirSync(p, { recursive: true });
 });
-global.logger = logger;
 
-// ─── App & HTTP server ────────────────────────────────────────────────────────
 const app = express();
 const server = http.createServer(app);
 
-// ─── Socket.IO ────────────────────────────────────────────────────────────────
-const io = new Server(server, {
-  cors: {
-    origin: process.env.FRONTEND_URL || '*',
-    methods: ['GET', 'POST'],
-  },
-});
-
-io.on('connection', (socket) => {
-  socket.on('join_broadcast', (broadcastId) => {
-    socket.join(`broadcast_${broadcastId}`);
-  });
-
-  socket.on('leave_broadcast', (broadcastId) => {
-    socket.leave(`broadcast_${broadcastId}`);
-  });
-
-  socket.on('chat_message', (data) => {
-    // data: { broadcastId, message, userId, username }
-    io.to(`broadcast_${data.broadcastId}`).emit('new_message', {
-      ...data,
-      timestamp: new Date().toISOString(),
-    });
-  });
-});
-
-global.io = io;
-
-// ─── Middleware ────────────────────────────────────────────────────────────────
-app.use(cors({ origin: process.env.FRONTEND_URL || '*', credentials: true }));
+app.use(cors({ origin: config.corsOrigin, credentials: true }));
+app.use(express.json({ limit: "10mb" }));
+app.use(cookieParser());
 app.use(compression());
-app.use(express.json({ limit: '10mb' }));
+app.use(
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 200,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Слишком много запросов, попробуйте позже" },
+  })
+);
+app.use("/uploads", express.static(join(__dirname, "uploads")));
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 минут
-  max: 200,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Слишком много запросов, попробуйте позже' },
-});
-app.use('/api/', limiter);
+app.use("/api/auth", authRoutes);
+app.use("/api/profile", profileRoutes);
+app.use("/api/courses", courseRoutes);
+app.use("/api/broadcasts", broadcastRoutes);
+app.use("/api/payments", paymentRoutes);
+app.use("/api/user", userRoutes);
 
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 20,
-  message: { error: 'Слишком много попыток входа' },
-});
+app.get("/api/health", (_req, res) => res.json({ status: "ok", uptime: process.uptime() }));
 
-// ─── Routes ───────────────────────────────────────────────────────────────────
-app.use('/api/auth', authLimiter, require('./routes/auth'));
-app.use('/api/profile', require('./routes/profile'));
-app.use('/api/broadcasts', require('./routes/broadcasts'));
-app.use('/api/payments', require('./routes/payments'));
-app.use('/api/user', require('./routes/user'));
+setupChatSocket(server);
 
-app.get('/health', (req, res) => res.json({ status: 'ok' }));
+const distPath = join(__dirname, "..", "frontend", "dist");
+if (existsSync(distPath)) {
+  app.use(express.static(distPath));
+  app.get("*", (req, res) => {
+    if (!req.path.startsWith("/api")) res.sendFile(join(distPath, "index.html"));
+  });
+}
 
-// ─── Error handler ────────────────────────────────────────────────────────────
-app.use(require('./middleware/errorHandler'));
+app.use(errorHandler);
 
-// ─── MongoDB connect & migrate ────────────────────────────────────────────────
-async function migrate() {
-  const User = require('./models/User');
-  // Добавляем поля balanceRub и role всем пользователям у которых их нет
-  await User.updateMany(
+const migrate = async () => {
+  const r = await User.updateMany(
     { balanceRub: { $exists: false } },
-    { $set: { balanceRub: 0 } }
+    { $set: { balanceRub: 0, role: "student", mode: "learn_only" } }
   );
-  await User.updateMany(
-    { role: { $exists: false } },
-    { $set: { role: 'student' } }
-  );
-  logger.info('Migration completed');
-}
+  if (r.modifiedCount > 0) console.log(`Migrated ${r.modifiedCount} users`);
+};
 
-async function start() {
-  try {
-    await mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/edgeflow');
-    logger.info('MongoDB connected');
+const start = (port) => {
+  server.listen(port, () => console.log(`Server running on port ${port}`));
+  server.on("error", (err) => {
+    if (err.code === "EADDRINUSE") {
+      console.log(`Port ${port} busy, trying ${port + 1}...`);
+      start(port + 1);
+    } else {
+      console.error(err);
+      process.exit(1);
+    }
+  });
+};
+
+connectDB()
+  .then(async () => {
     await migrate();
-    const PORT = process.env.PORT || 5000;
-    server.listen(PORT, () => logger.info(`Server running on port ${PORT}`));
-  } catch (err) {
-    logger.error('Startup error', { err });
+    start(config.port);
+  })
+  .catch((err) => {
+    console.error("Failed to connect to DB:", err);
     process.exit(1);
-  }
-}
-
-if (require.main === module) {
-  start();
-}
-
-module.exports = { app, server };
+  });

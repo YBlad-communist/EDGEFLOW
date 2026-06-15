@@ -1,23 +1,43 @@
-const mongoose = require('mongoose');
+import mongoose from "mongoose";
 
-const broadcastSchema = new mongoose.Schema({
-  title: { type: String, required: true, trim: true },
-  description: { type: String, default: '' },
-  authorId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-  price: { type: Number, default: 0 },
-  isLive: { type: Boolean, default: false },
-  streamKey: { type: String, unique: true, sparse: true },
-  hlsUrl: { type: String, default: '' },
-  startTime: { type: Date },
-  endTime: { type: Date },
-  recordedVideoUrl: { type: String, default: '' },
-  thumbnail: { type: String, default: '' },
-  tags: [{ type: String }],
-  viewerCount: { type: Number, default: 0 },
-}, { timestamps: true });
+const broadcastSchema = new mongoose.Schema(
+  {
+    title: { type: String, required: true },
+    description: { type: String, default: "" },
+    price: { type: Number, default: 0 },
+    category: { type: String, default: "live" },
+    authorId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    isLive: { type: Boolean, default: false },
+    streamKey: { type: String, unique: true },
+    rtmpUrl: { type: String },
+    hlsUrl: { type: String },
+    startTime: { type: Date },
+    endTime: { type: Date },
+    recordedVideoUrl: { type: String },
+  },
+  { timestamps: true }
+);
 
 broadcastSchema.index({ authorId: 1 });
 broadcastSchema.index({ isLive: 1 });
-broadcastSchema.index({ createdAt: -1 });
 
-module.exports = mongoose.model('Broadcast', broadcastSchema);
+broadcastSchema.methods.toJSON = function () {
+  return {
+    id: this._id.toString(),
+    title: this.title,
+    description: this.description,
+    price: this.price,
+    category: this.category,
+    authorId: this.authorId,
+    isLive: this.isLive,
+    streamKey: this.streamKey,
+    rtmpUrl: this.rtmpUrl,
+    hlsUrl: this.hlsUrl,
+    startTime: this.startTime,
+    endTime: this.endTime,
+    recordedVideoUrl: this.recordedVideoUrl,
+    createdAt: this.createdAt,
+  };
+};
+
+export default mongoose.model("Broadcast", broadcastSchema);

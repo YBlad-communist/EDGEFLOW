@@ -1,112 +1,58 @@
-import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import Tour from '../components/Tour';
-import api from '../api';
-
-function BroadcastCard({ broadcast }) {
-  return (
-    <Link
-      to={`/broadcasts/${broadcast._id}`}
-      className="card hover:border-gray-700 transition-colors block"
-    >
-      <div className="flex items-start justify-between gap-2 mb-2">
-        <h3 className="font-semibold leading-tight">{broadcast.title}</h3>
-        {broadcast.isLive && (
-          <span className="flex-shrink-0 flex items-center gap-1 text-xs bg-red-500/20 text-red-400 px-2 py-0.5 rounded-full">
-            <span className="w-1.5 h-1.5 bg-red-400 rounded-full animate-pulse" />
-            LIVE
-          </span>
-        )}
-      </div>
-      {broadcast.description && (
-        <p className="text-sm text-gray-400 line-clamp-2 mb-3">{broadcast.description}</p>
-      )}
-      <div className="flex items-center justify-between text-sm">
-        <span className="text-gray-500">
-          {broadcast.authorId?.username || 'Учитель'}
-        </span>
-        <span className="font-medium text-brand-400">
-          {broadcast.price > 0 ? `${broadcast.price} ₽` : 'Бесплатно'}
-        </span>
-      </div>
-      {broadcast.tags?.length > 0 && (
-        <div className="flex flex-wrap gap-1 mt-2">
-          {broadcast.tags.slice(0, 3).map((tag) => (
-            <span key={tag} className="text-xs bg-gray-800 text-gray-500 px-1.5 py-0.5 rounded">
-              #{tag}
-            </span>
-          ))}
-        </div>
-      )}
-    </Link>
-  );
-}
+import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
+import { api } from "../api.js";
 
 export default function CoursesList() {
-  const { user } = useAuth();
-  const [broadcasts, setBroadcasts] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('all'); // all | live | free
+  const [courses, setCourses] = useState([]);
+  const [search, setSearch] = useState("");
+  const [category, setCategory] = useState("");
 
   useEffect(() => {
-    const endpoint = filter === 'live' ? '/broadcasts/active' : '/broadcasts';
-    api.get(endpoint)
-      .then((res) => {
-        let data = res.data;
-        if (filter === 'free') data = data.filter((b) => b.price === 0);
-        setBroadcasts(data);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [filter]);
+    const params = new URLSearchParams();
+    if (search) params.set("search", search);
+    if (category) params.set("category", category);
+    api(`/api/courses?${params}`).then(setCourses).catch(() => {});
+  }, [search, category]);
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
-      {user && <Tour role={user.role} />}
-
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Трансляции</h1>
-        <div className="flex gap-2" data-tour="broadcasts-list">
-          {[
-            { value: 'all', label: 'Все' },
-            { value: 'live', label: '🔴 Live' },
-            { value: 'free', label: 'Бесплатные' },
-          ].map((f) => (
-            <button
-              key={f.value}
-              onClick={() => { setLoading(true); setFilter(f.value); }}
-              className={`text-sm px-3 py-1.5 rounded-lg transition-colors ${
-                filter === f.value ? 'bg-brand-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
+    <div className="max-w-6xl mx-auto px-4 py-8">
+      <h1 className="text-2xl font-bold mb-5">Курсы</h1>
+      <div className="flex gap-4 mb-6 flex-wrap">
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск курсов..." className="flex-1 min-w-[200px] bg-surface border border-edge rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent" />
+        <select value={category} onChange={(e) => setCategory(e.target.value)} className="bg-surface border border-edge rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent min-w-[140px]">
+          <option value="">Все категории</option>
+          <option value="blockchain">Blockchain</option>
+          <option value="web3">Web3</option>
+          <option value="defi">DeFi</option>
+          <option value="trading">Trading</option>
+          <option value="development">Development</option>
+          <option value="design">Design</option>
+          <option value="business">Business</option>
+        </select>
       </div>
-
-      {loading ? (
-        <div className="flex justify-center py-16">
-          <div className="w-8 h-8 border-4 border-brand-500 border-t-transparent rounded-full animate-spin" />
-        </div>
-      ) : broadcasts.length === 0 ? (
-        <div className="text-center py-20 text-gray-500">
-          <div className="text-4xl mb-3">📭</div>
-          <p>Трансляций пока нет</p>
-          {user?.role === 'teacher' && user?.teacherProfile?.isComplete && (
-            <Link to="/broadcasts/create" className="btn-primary inline-block mt-4 text-sm">
-              Создать первую
-            </Link>
-          )}
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {broadcasts.map((b) => (
-            <BroadcastCard key={b._id} broadcast={b} />
-          ))}
+      {courses.length === 0 && (
+        <div className="text-center py-16 text-secondary">
+          <div className="text-5xl mb-3 text-accent">COURSES</div>
+          <p>Курсов не найдено</p>
         </div>
       )}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {courses.map((c) => (
+          <Link key={c._id || c.id} to={`/courses/${c._id || c.id}`} className="bg-card border border-edge rounded-xl overflow-hidden hover:-translate-y-1 hover:shadow-lg hover:shadow-accent/10 transition-all no-underline text-white">
+            {c.cover ? (
+              <img src={c.cover} alt={c.title} className="w-full aspect-video object-cover" />
+            ) : (
+              <div className="w-full aspect-video bg-[#1a1a2e] flex items-center justify-center text-2xl text-secondary">COURSE</div>
+            )}
+            <div className="p-4">
+              <div className="text-lg font-extrabold text-accent mb-1">{c.price} ₽</div>
+              <div className="text-sm font-semibold truncate mb-1">{c.title}</div>
+              <div className="text-xs text-secondary">{c.author_display_name || c.author_name} &middot; {c.avg_rating ? Number(c.avg_rating).toFixed(1) : "0.0"} ({c.review_count || 0})</div>
+              {c.category && <span className="inline-block bg-blue-500/10 text-blue-400 text-xs font-semibold px-2 py-0.5 rounded mt-2">{c.category}</span>}
+            </div>
+          </Link>
+        ))}
+      </div>
     </div>
   );
 }

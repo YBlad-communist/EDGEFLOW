@@ -1,214 +1,152 @@
-const router = require('express').Router();
-const { body, validationResult } = require('express-validator');
-const { v4: uuidv4 } = require('uuid');
-const auth = require('../middleware/auth');
-const teacherRequired = require('../middleware/teacherRequired');
-const Broadcast = require('../models/Broadcast');
-const ChatMessage = require('../models/ChatMessage');
-const srsService = require('../services/srsService');
+import { Router } from "express";
+import Broadcast from "../models/Broadcast.js";
+import ChatMessage from "../models/ChatMessage.js";
+import Purchase from "../models/Purchase.js";
+import User from "../models/User.js";
+import { authMiddleware } from "../middleware/auth.js";
+import { teacherProfileRequired } from "../middleware/teacherRequired.js";
+import { generateStreamKey, buildHlsUrl, buildRtmpUrl, checkStreamActive } from "../services/srsService.js";
+import config from "../config/index.js";
 
-// GET /api/broadcasts — список всех трансляций
-router.get('/', async (req, res, next) => {
+const router = Router();
+
+router.post("/create", authMiddleware, teacherProfileRequired, async (req, res, next) => {
   try {
-    const broadcasts = await Broadcast.find()
-      .populate('authorId', 'username teacherProfile.fullName')
-      .sort({ createdAt: -1 })
-      .limit(50);
-    res.json(broadcasts);
-  } catch (err) {
-    next(err);
-  }
+    const { title, description, price, category } = req.body;
+    if (!title) return res.status(400).json({ error: "Название обязательно" });
+    const streamKey = generateStreamKey();
+    const broadcast = await Broadcast.create({
+      title, description: description || "",
+      price: price ?? (req.teacherProfile.hourlyRate || 0),
+      category: category || "live",
+      authorId: req.userId, streamKey,
+      rtmpUrl: buildRtmpUrl(streamKey),
+      hlsUrl: buildHlsUrl(streamKey),
+    });
+    res.status(201).json(broadcast.toJSON());
+  } catch (err) { next(err); }
 });
 
-// GET /api/broadcasts/active — только живые
-router.get('/active', async (req, res, next) => {
+router.get("/active", async (req, res, next) => {
   try {
     const broadcasts = await Broadcast.find({ isLive: true })
-      .populate('authorId', 'username teacherProfile.fullName')
-      .sort({ startTime: -1 });
-    res.json(broadcasts);
-  } catch (err) {
-    next(err);
-  }
+      .populate("authorId", "username displayName avatar")
+      .sort({ startTime: -1 }).lean();
+    const enriched = await Promise.all(broadcasts.map(async (b) => {
+      const purchaseCount = await Purchase.countDocuments({ itemId: b._id, itemType: "broadcast", status: "completed" });
+      return { ...b, id: b._id.toString(), viewerCount: purchaseCount };
+    }));
+    res.json(enriched);
+  } catch (err) { next(err); }
 });
 
-// GET /api/broadcasts/:id
-router.get('/:id', async (req, res, next) => {
+router.get("/my", authMiddleware, async (req, res, next) => {
+  try {
+    const broadcasts = await Broadcast.find({ authorId: req.userId }).sort({ createdAt: -1 }).lean();
+    res.json(broadcasts.map((b) => ({ ...b, id: b._id.toString() })));
+  } catch (err) { next(err); }
+});
+
+router.get("/purchased", authMiddleware, async (req, res, next) => {
+  try {
+    const purchases = await Purchase.find({ userId: req.userId, itemType: "broadcast", status: "completed" }).lean();
+    const ids = purchases.map((p) => p.itemId);
+    const broadcasts = await Broadcast.find({ _id: { $in: ids } })
+      .populate("authorId", "username displayName")
+      .sort({ createdAt: -1 }).lean();
+    res.json(broadcasts.map((b) => ({ ...b, id: b._id.toString() })));
+  } catch (err) { next(err); }
+});
+
+router.get("/:id", authMiddleware, async (req, res, next) => {
   try {
     const broadcast = await Broadcast.findById(req.params.id)
-      .populate('authorId', 'username teacherProfile');
-    if (!broadcast) return res.status(404).json({ error: 'Трансляция не найдена' });
-    res.json(broadcast);
-  } catch (err) {
-    next(err);
-  }
-});
-
-// POST /api/broadcasts — создание (только учитель с анкетой)
-router.post(
-  '/',
-  auth,
-  teacherRequired,
-  [
-    body('title').trim().notEmpty().withMessage('Заголовок обязателен'),
-    body('price').isFloat({ min: 0 }).withMessage('Цена должна быть >= 0'),
-  ],
-  async (req, res, next) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
+      .populate("authorId", "username displayName avatar bio")
+      .lean();
+    if (!broadcast) return res.status(404).json({ error: "Трансляция не найдена" });
+    const isAuthor = broadcast.authorId._id.toString() === req.userId;
+    const purchase = await Purchase.findOne({ itemId: broadcast._id, itemType: "broadcast", userId: req.userId, status: "completed" }).lean();
+    const hasAccess = isAuthor || !!purchase || broadcast.price === 0;
+    if (broadcast.isLive) {
+      const active = await checkStreamActive(broadcast.streamKey);
+      if (!active) {
+        await Broadcast.updateOne({ _id: broadcast._id }, { $set: { isLive: false, endTime: new Date() } });
+        broadcast.isLive = false;
+        broadcast.endTime = new Date();
       }
-      const { title, description, price, startTime, tags } = req.body;
-      const streamKey = uuidv4();
-      const srsBase = process.env.SRS_API_URL?.replace(':1985', ':8080') || 'http://localhost:8080';
-      const hlsUrl = `${srsBase}/live/${streamKey}.m3u8`;
-
-      const broadcast = await Broadcast.create({
-        title,
-        description,
-        price: Number(price) || 0,
-        authorId: req.user._id,
-        streamKey,
-        hlsUrl,
-        startTime: startTime ? new Date(startTime) : undefined,
-        tags: tags || [],
-      });
-
-      res.status(201).json(broadcast);
-    } catch (err) {
-      next(err);
     }
-  }
-);
-
-// PUT /api/broadcasts/:id — редактирование
-router.put('/:id', auth, teacherRequired, async (req, res, next) => {
-  try {
-    const broadcast = await Broadcast.findById(req.params.id);
-    if (!broadcast) return res.status(404).json({ error: 'Не найдено' });
-    if (broadcast.authorId.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ error: 'Нет прав' });
-    }
-    const { title, description, price, startTime, tags } = req.body;
-    Object.assign(broadcast, {
-      ...(title && { title }),
-      ...(description !== undefined && { description }),
-      ...(price !== undefined && { price: Number(price) }),
-      ...(startTime && { startTime: new Date(startTime) }),
-      ...(tags && { tags }),
-    });
-    await broadcast.save();
-    res.json(broadcast);
-  } catch (err) {
-    next(err);
-  }
+    res.json({ ...broadcast, id: broadcast._id.toString(), hasAccess, isAuthor });
+  } catch (err) { next(err); }
 });
 
-// DELETE /api/broadcasts/:id
-router.delete('/:id', auth, teacherRequired, async (req, res, next) => {
+router.post("/:id/start", authMiddleware, async (req, res, next) => {
   try {
     const broadcast = await Broadcast.findById(req.params.id);
-    if (!broadcast) return res.status(404).json({ error: 'Не найдено' });
-    if (broadcast.authorId.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ error: 'Нет прав' });
-    }
-    await broadcast.deleteOne();
-    res.json({ message: 'Удалено' });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// POST /api/broadcasts/:id/start — начать трансляцию
-router.post('/:id/start', auth, teacherRequired, async (req, res, next) => {
-  try {
-    const broadcast = await Broadcast.findById(req.params.id);
-    if (!broadcast) return res.status(404).json({ error: 'Не найдено' });
-    if (broadcast.authorId.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ error: 'Нет прав' });
-    }
+    if (!broadcast) return res.status(404).json({ error: "Трансляция не найдена" });
+    if (broadcast.authorId.toString() !== req.userId) return res.status(403).json({ error: "Нет доступа" });
     broadcast.isLive = true;
     broadcast.startTime = new Date();
+    broadcast.endTime = null;
+    broadcast.hlsUrl = buildHlsUrl(broadcast.streamKey);
+    broadcast.rtmpUrl = buildRtmpUrl(broadcast.streamKey);
     await broadcast.save();
-
-    // Проверяем статус SRS (не блокируем, если SRS недоступен)
-    try {
-      const isActive = await srsService.isStreamActive(broadcast.streamKey);
-      if (!isActive) {
-        logger.warn(`Stream key ${broadcast.streamKey} not active in SRS yet`);
-      }
-    } catch (e) {
-      // SRS может быть временно недоступен
-    }
-
-    res.json(broadcast);
-  } catch (err) {
-    next(err);
-  }
+    res.json(broadcast.toJSON());
+  } catch (err) { next(err); }
 });
 
-// POST /api/broadcasts/:id/stop — остановить трансляцию
-router.post('/:id/stop', auth, teacherRequired, async (req, res, next) => {
+router.post("/:id/stop", authMiddleware, async (req, res, next) => {
   try {
     const broadcast = await Broadcast.findById(req.params.id);
-    if (!broadcast) return res.status(404).json({ error: 'Не найдено' });
-    if (broadcast.authorId.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ error: 'Нет прав' });
-    }
+    if (!broadcast) return res.status(404).json({ error: "Трансляция не найдена" });
+    if (broadcast.authorId.toString() !== req.userId) return res.status(403).json({ error: "Нет доступа" });
     broadcast.isLive = false;
     broadcast.endTime = new Date();
+    if (req.body.recordedVideoUrl) broadcast.recordedVideoUrl = req.body.recordedVideoUrl;
     await broadcast.save();
-    res.json(broadcast);
-  } catch (err) {
-    next(err);
-  }
+    res.json(broadcast.toJSON());
+  } catch (err) { next(err); }
 });
 
-// POST /api/broadcasts/:id/chat — отправить сообщение (сохранить в БД)
-router.post('/:id/chat', auth, async (req, res, next) => {
+router.post("/:id/purchase", authMiddleware, async (req, res, next) => {
   try {
-    const { message } = req.body;
-    if (!message || !message.trim()) {
-      return res.status(400).json({ error: 'Сообщение не может быть пустым' });
-    }
     const broadcast = await Broadcast.findById(req.params.id);
-    if (!broadcast) return res.status(404).json({ error: 'Трансляция не найдена' });
-
-    const chatMsg = await ChatMessage.create({
-      broadcastId: broadcast._id,
-      userId: req.user._id,
-      username: req.user.username,
-      message: message.trim(),
-    });
-
-    // Рассылка через Socket.IO
-    if (global.io) {
-      global.io.to(`broadcast_${broadcast._id}`).emit('new_message', {
-        broadcastId: broadcast._id,
-        userId: req.user._id,
-        username: req.user.username,
-        message: message.trim(),
-        timestamp: chatMsg.timestamp,
-      });
+    if (!broadcast) return res.status(404).json({ error: "Трансляция не найдена" });
+    if (broadcast.authorId.toString() === req.userId)
+      return res.status(400).json({ error: "Нельзя купить свою трансляцию" });
+    const existing = await Purchase.findOne({ itemId: broadcast._id, itemType: "broadcast", userId: req.userId });
+    if (existing?.status === "completed") return res.status(400).json({ error: "Уже куплено" });
+    if (broadcast.price > 0) {
+      const user = await User.findById(req.userId);
+      if (!user || user.balanceRub < broadcast.price) return res.status(400).json({ error: "Недостаточно средств" });
+      user.balanceRub -= broadcast.price;
+      await user.save();
+      const commission = (broadcast.price * config.platformCommissionPercent) / 100;
+      const authorAmount = broadcast.price - commission;
+      await User.updateOne({ _id: broadcast.authorId }, { $inc: { balanceRub: authorAmount } });
+      const adminUser = await User.findOne({ isAdmin: true });
+      if (adminUser) await User.updateOne({ _id: adminUser._id }, { $inc: { balanceRub: commission } });
     }
-
-    res.status(201).json(chatMsg);
-  } catch (err) {
-    next(err);
-  }
+    if (existing) {
+      existing.status = "completed";
+      await existing.save();
+    } else {
+      await Purchase.create({ userId: req.userId, itemId: broadcast._id, itemType: "broadcast", amount: broadcast.price, status: "completed", paymentId: "balance" });
+    }
+    const user = await User.findById(req.userId);
+    res.json({ success: true, balanceRub: user?.balanceRub || 0, message: "Доступ открыт!" });
+  } catch (err) { next(err); }
 });
 
-// GET /api/broadcasts/:id/chat — история чата
-router.get('/:id/chat', async (req, res, next) => {
+router.get("/:id/chat", authMiddleware, async (req, res, next) => {
   try {
-    const messages = await ChatMessage.find({ broadcastId: req.params.id })
-      .sort({ timestamp: 1 })
-      .limit(200);
-    res.json(messages);
-  } catch (err) {
-    next(err);
-  }
+    const msgs = await ChatMessage.find({ broadcastId: req.params.id })
+      .populate("userId", "username displayName")
+      .sort({ createdAt: -1 }).limit(50).lean();
+    res.json(msgs.reverse().map((m) => ({
+      ...m, id: m._id.toString(),
+      username: m.userId?.displayName || m.userId?.username || "Unknown",
+    })));
+  } catch (err) { next(err); }
 });
 
-module.exports = router;
+export default router;

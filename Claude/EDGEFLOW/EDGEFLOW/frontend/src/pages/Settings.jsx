@@ -1,96 +1,35 @@
-import { useState } from 'react';
-import toast from 'react-hot-toast';
-import { useAuth } from '../context/AuthContext';
-import api from '../api';
+import { useAuth } from "../contexts/AuthContext.jsx";
 
 export default function Settings() {
-  const { user, refreshUser } = useAuth();
-  const [withdrawAmount, setWithdrawAmount] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  const handleModeChange = async (mode) => {
-    try {
-      await api.put('/profile/mode', { mode });
-      await refreshUser();
-      toast.success('Режим изменён');
-    } catch (err) {
-      toast.error(err?.response?.data?.error || 'Ошибка');
-    }
-  };
-
-  const handleWithdraw = async () => {
-    const amount = Number(withdrawAmount);
-    if (!amount || amount <= 0) return toast.error('Введите сумму');
-    setLoading(true);
-    try {
-      const res = await api.post('/user/withdraw', { amount, requisites: 'bank' });
-      toast.success(res.data.message);
-      await refreshUser();
-      setWithdrawAmount('');
-    } catch (err) {
-      toast.error(err?.response?.data?.error || 'Ошибка');
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  const { user, updateMode } = useAuth();
   if (!user) return null;
 
   return (
-    <div className="max-w-xl mx-auto px-4 py-8 space-y-6">
-      <h1 className="text-2xl font-bold">Настройки</h1>
-
-      {/* Режим */}
-      {user.role === 'teacher' && (
-        <div className="card">
-          <h2 className="font-semibold mb-3">Режим участия</h2>
-          <div className="space-y-2">
-            {[
-              { value: 'learn_only', label: 'Только учиться', desc: 'Просмотр трансляций других' },
-              { value: 'learn_and_teach', label: 'Учиться и преподавать', desc: 'Создавать трансляции и учиться' },
-            ].map((m) => (
-              <label
-                key={m.value}
-                className={`flex items-start gap-3 cursor-pointer border rounded-lg p-3 transition-colors ${
-                  user.mode === m.value ? 'border-brand-500 bg-brand-500/10' : 'border-gray-700'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="mode"
-                  value={m.value}
-                  checked={user.mode === m.value}
-                  onChange={() => handleModeChange(m.value)}
-                  className="mt-0.5"
-                />
-                <div>
-                  <div className="text-sm font-medium">{m.label}</div>
-                  <div className="text-xs text-gray-400">{m.desc}</div>
-                </div>
+    <div className="max-w-lg mx-auto px-4 py-8">
+      <h1 className="text-2xl font-bold mb-6">Настройки</h1>
+      <div className="bg-card border border-edge rounded-xl p-5 mb-4">
+        <h3 className="text-sm font-bold mb-1">Email</h3>
+        <p className="text-sm text-secondary">{user.email}</p>
+      </div>
+      <div className="bg-card border border-edge rounded-xl p-5 mb-4">
+        <h3 className="text-sm font-bold mb-1">Роль</h3>
+        <p className="text-sm text-secondary">{user.role === "teacher" ? "Учитель" : "Ученик"}</p>
+      </div>
+      {user.role === "teacher" && (
+        <div className="bg-card border border-edge rounded-xl p-5">
+          <h3 className="text-sm font-bold mb-2">Режим</h3>
+          <p className="text-xs text-secondary mb-3">Выберите, хотите ли вы только учиться или также преподавать</p>
+          <div className="flex gap-3">
+            {["learn_only", "learn_and_teach"].map((m) => (
+              <label key={m} className={`flex-1 flex flex-col gap-1 p-3 border-2 rounded-lg cursor-pointer transition ${user.mode === m ? "border-accent bg-accent/10" : "border-edge"}`}>
+                <input type="radio" name="mode" value={m} checked={user.mode === m} onChange={() => updateMode(m)} className="hidden" />
+                <span className="font-bold text-sm">{m === "learn_only" ? "Только обучение" : "Обучение и преподавание"}</span>
+                <span className="text-xs text-secondary">{m === "learn_only" ? "Скрыть пункты учителя" : "Показать все пункты"}</span>
               </label>
             ))}
           </div>
         </div>
       )}
-
-      {/* Вывод средств */}
-      <div className="card">
-        <h2 className="font-semibold mb-1">Вывод средств</h2>
-        <p className="text-sm text-gray-400 mb-3">Доступно: {user.balanceRub?.toFixed(2) || '0.00'} ₽</p>
-        <div className="flex gap-3">
-          <input
-            type="number"
-            className="input flex-1"
-            placeholder="Сумма в ₽"
-            value={withdrawAmount}
-            onChange={(e) => setWithdrawAmount(e.target.value)}
-            min="1"
-          />
-          <button onClick={handleWithdraw} className="btn-primary" disabled={loading}>
-            {loading ? '...' : 'Вывести'}
-          </button>
-        </div>
-      </div>
     </div>
   );
 }

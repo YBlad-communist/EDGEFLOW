@@ -1,92 +1,64 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import toast from 'react-hot-toast';
-import { useAuth } from '../context/AuthContext';
+import { useState } from "react";
+import { useNavigate, Link } from "react-router-dom";
+import { api } from "../api.js";
+import { useAuth } from "../contexts/AuthContext.jsx";
 
 export default function Register() {
-  const { register } = useAuth();
   const navigate = useNavigate();
-  const [form, setForm] = useState({ email: '', password: '', username: '', role: 'student' });
+  const { login } = useAuth();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [role, setRole] = useState("student");
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-
-  const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (form.password.length < 6) {
-      return toast.error('Пароль минимум 6 символов');
-    }
+    setError("");
     setLoading(true);
     try {
-      const user = await register(form);
-      if (user.role === 'teacher') {
-        navigate('/teacher/profile');
-      } else {
-        navigate('/');
-      }
-    } catch (err) {
-      toast.error(err?.response?.data?.error || err?.response?.data?.errors?.[0]?.msg || 'Ошибка регистрации');
-    } finally {
-      setLoading(false);
-    }
+      const data = await api("/api/auth/register", { method: "POST", body: JSON.stringify({ email, password, role }) });
+      login(data.user);
+      navigate("/courses");
+    } catch (err) { setError(err.message || "Ошибка регистрации"); }
+    setLoading(false);
   };
 
   return (
-    <div className="min-h-[calc(100vh-56px)] flex items-center justify-center p-4">
-      <div className="card w-full max-w-md">
-        <h1 className="text-2xl font-bold mb-6">Регистрация</h1>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="label">Имя пользователя</label>
-            <input name="username" className="input" value={form.username} onChange={handleChange} required />
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="bg-card border border-edge rounded-xl p-8 w-full max-w-sm">
+        <h1 className="text-2xl font-bold text-center mb-2">Регистрация</h1>
+        <p className="text-sm text-secondary text-center mb-6">Создайте аккаунт</p>
+        {error && <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm rounded-lg px-4 py-2 mb-4 text-center">{error}</div>}
+        <form onSubmit={handleSubmit}>
+          <div className="mb-4">
+            <label className="text-xs font-semibold text-secondary block mb-1">Email</label>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="w-full bg-surface border border-edge rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent" />
           </div>
-          <div>
-            <label className="label">Email</label>
-            <input name="email" type="email" className="input" value={form.email} onChange={handleChange} required />
+          <div className="mb-4">
+            <label className="text-xs font-semibold text-secondary block mb-1">Пароль</label>
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={4} required className="w-full bg-surface border border-edge rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent" />
           </div>
-          <div>
-            <label className="label">Пароль</label>
-            <input name="password" type="password" className="input" value={form.password} onChange={handleChange} required />
-          </div>
-          <div>
-            <label className="label">Роль</label>
-            <div className="grid grid-cols-2 gap-3">
-              {[
-                { value: 'student', label: '🎓 Студент', desc: 'Учусь у других' },
-                { value: 'teacher', label: '🧑‍🏫 Учитель', desc: 'Веду трансляции' },
-              ].map((opt) => (
-                <label
-                  key={opt.value}
-                  className={`cursor-pointer border rounded-lg p-3 transition-colors ${
-                    form.role === opt.value
-                      ? 'border-brand-500 bg-brand-500/10'
-                      : 'border-gray-700 hover:border-gray-600'
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="role"
-                    value={opt.value}
-                    checked={form.role === opt.value}
-                    onChange={handleChange}
-                    className="sr-only"
-                  />
-                  <div className="font-medium text-sm">{opt.label}</div>
-                  <div className="text-xs text-gray-400 mt-0.5">{opt.desc}</div>
-                </label>
-              ))}
+          <div className="mb-6">
+            <label className="text-xs font-semibold text-secondary block mb-3">Роль</label>
+            <div className="flex gap-3">
+              <label className={`flex-1 flex flex-col gap-1 p-3 border-2 rounded-lg cursor-pointer transition ${role === "student" ? "border-accent bg-accent/10" : "border-edge"}`}>
+                <input type="radio" name="role" value="student" checked={role === "student"} onChange={(e) => setRole(e.target.value)} className="hidden" />
+                <span className="font-bold text-sm">Ученик</span>
+                <span className="text-xs text-secondary">Смотреть курсы</span>
+              </label>
+              <label className={`flex-1 flex flex-col gap-1 p-3 border-2 rounded-lg cursor-pointer transition ${role === "teacher" ? "border-accent bg-accent/10" : "border-edge"}`}>
+                <input type="radio" name="role" value="teacher" checked={role === "teacher"} onChange={(e) => setRole(e.target.value)} className="hidden" />
+                <span className="font-bold text-sm">Учитель</span>
+                <span className="text-xs text-secondary">Создавать курсы</span>
+              </label>
             </div>
           </div>
-          <button type="submit" className="btn-primary w-full" disabled={loading}>
-            {loading ? 'Создание...' : 'Создать аккаунт'}
+          <button type="submit" className="w-full bg-accent text-white font-semibold rounded-lg px-4 py-2.5 text-sm hover:bg-accent-hover transition disabled:opacity-50" disabled={loading}>
+            {loading ? "Загрузка..." : "Зарегистрироваться"}
           </button>
         </form>
-        <p className="mt-4 text-center text-sm text-gray-400">
-          Уже есть аккаунт?{' '}
-          <Link to="/login" className="text-brand-400 hover:text-brand-300">
-            Войти
-          </Link>
-        </p>
+        <p className="text-center text-sm text-secondary mt-4">Уже есть аккаунт? <Link to="/login" className="text-accent">Войти</Link></p>
       </div>
     </div>
   );

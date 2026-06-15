@@ -1,190 +1,71 @@
-import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import toast from 'react-hot-toast';
-import HlsPlayer from '../components/HlsPlayer';
-import LiveChat from '../components/LiveChat';
-import { useAuth } from '../context/AuthContext';
-import api from '../api';
+import { useState, useEffect } from "react";
+import { useParams, Link } from "react-router-dom";
+import { api } from "../api.js";
+import { useAuth } from "../contexts/AuthContext.jsx";
+import HlsPlayer from "../components/HlsPlayer.jsx";
+import LiveChat from "../components/LiveChat.jsx";
 
 export default function BroadcastDetail() {
   const { id } = useParams();
-  const navigate = useNavigate();
-  const { user } = useAuth();
+  const { updateUser } = useAuth();
   const [broadcast, setBroadcast] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [paying, setPaying] = useState(false);
-  const [hasAccess, setHasAccess] = useState(false);
+  const [msg, setMsg] = useState("");
 
-  useEffect(() => {
-    api.get(`/broadcasts/${id}`)
-      .then((res) => {
-        setBroadcast(res.data);
-        // Проверяем доступ: бесплатная или куплена
-        if (res.data.price === 0) {
-          setHasAccess(true);
-        } else if (user) {
-          api.get('/user/purchases')
-            .then((r) => {
-              const bought = r.data.some((p) => p.itemId === id && p.status === 'completed');
-              setHasAccess(bought);
-            })
-            .catch(() => {});
-        }
-      })
-      .catch(() => toast.error('Трансляция не найдена'))
-      .finally(() => setLoading(false));
-  }, [id, user]);
+  const load = () => {
+    api(`/api/broadcasts/${id}`).then(setBroadcast).catch(() => {}).finally(() => setLoading(false));
+  };
+  useEffect(() => { load(); }, [id]);
 
-  const handleStart = async () => {
+  const handlePurchase = async () => {
     try {
-      const res = await api.post(`/broadcasts/${id}/start`);
-      setBroadcast(res.data);
-      toast.success('Трансляция запущена!');
-    } catch {
-      toast.error('Ошибка запуска');
-    }
+      const data = await api(`/api/broadcasts/${id}/purchase`, { method: "POST" });
+      setMsg(data.message);
+      if (data.balanceRub !== undefined) updateUser({ balanceRub: data.balanceRub });
+      load();
+    } catch (err) { setMsg(err.message); }
   };
 
-  const handleStop = async () => {
-    try {
-      const res = await api.post(`/broadcasts/${id}/stop`);
-      setBroadcast(res.data);
-      toast.success('Трансляция остановлена');
-    } catch {
-      toast.error('Ошибка');
-    }
-  };
-
-  const handlePay = async () => {
-    if (!user) return navigate('/login');
-    setPaying(true);
-    try {
-      const res = await api.post('/payments/create', { itemId: id, itemType: 'broadcast' });
-      if (res.data.free) {
-        setHasAccess(true);
-        toast.success('Доступ открыт!');
-      } else {
-        window.location.href = res.data.confirmationUrl;
-      }
-    } catch (err) {
-      toast.error(err?.response?.data?.error || 'Ошибка оплаты');
-    } finally {
-      setPaying(false);
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-brand-500 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
-
-  if (!broadcast) return <div className="p-8 text-center text-gray-400">Трансляция не найдена</div>;
-
-  const isOwner = user && broadcast.authorId?._id === user._id;
+  if (loading) return <div className="flex items-center justify-center min-h-[60vh] text-lg text-secondary">Загрузка...</div>;
+  if (!broadcast) return <div className="flex items-center justify-center min-h-[60vh] text-lg text-secondary">Трансляция не найдена</div>;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-6">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Плеер */}
-        <div className="lg:col-span-2 space-y-4">
-          {broadcast.isLive && hasAccess ? (
-            <HlsPlayer src={broadcast.hlsUrl} />
-          ) : broadcast.isLive && !hasAccess ? (
-            <div className="aspect-video bg-gray-900 rounded-xl flex items-center justify-center border border-gray-800">
-              <div className="text-center space-y-3">
-                <div className="text-4xl">🔒</div>
-                <p className="text-gray-300">Трансляция идёт прямо сейчас</p>
-                <p className="text-sm text-gray-500">Купите доступ, чтобы смотреть</p>
-                <button onClick={handlePay} disabled={paying} className="btn-primary">
-                  {paying ? 'Переход...' : `Купить доступ — ${broadcast.price} ₽`}
-                </button>
-              </div>
+    <div className="max-w-6xl mx-auto px-4 py-6">
+      <Link to="/broadcasts" className="inline-block bg-surface border border-edge text-secondary px-3 py-1.5 rounded-lg text-sm mb-4 hover:text-white transition no-underline">&larr; Назад</Link>
+      <div className="flex gap-4 flex-wrap">
+        <div className="flex-[2] min-w-[300px]">
+          {broadcast.isLive ? (
+            <div className="relative bg-black rounded-xl overflow-hidden">
+              <HlsPlayer src={broadcast.hlsUrl} />
+              <span className="absolute top-3 left-3 bg-red-500 text-white px-2.5 py-0.5 rounded text-xs font-bold">LIVE</span>
+            </div>
+          ) : broadcast.recordedVideoUrl ? (
+            <div className="bg-black rounded-xl overflow-hidden">
+              <video controls className="w-full" src={broadcast.recordedVideoUrl} />
             </div>
           ) : (
-            <div className="aspect-video bg-gray-900 rounded-xl flex items-center justify-center border border-gray-800">
-              <div className="text-center">
-                <div className="text-5xl mb-3">📅</div>
-                <p className="text-gray-400">Трансляция ещё не началась</p>
-                {broadcast.startTime && (
-                  <p className="text-sm text-gray-500 mt-1">
-                    {new Date(broadcast.startTime).toLocaleString('ru-RU')}
-                  </p>
-                )}
-              </div>
+            <div className="w-full aspect-video bg-[#1a1a2e] rounded-xl flex items-center justify-center text-4xl text-secondary">
+              {broadcast.isLive ? "LIVE" : "VIDEO"}
             </div>
           )}
-
-          {/* Инфо */}
-          <div className="card space-y-2">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h1 className="text-xl font-bold">{broadcast.title}</h1>
-                <p className="text-gray-400 text-sm mt-1">
-                  {broadcast.authorId?.username || 'Учитель'}
-                  {broadcast.authorId?.teacherProfile?.specialization &&
-                    ` · ${broadcast.authorId.teacherProfile.specialization}`}
-                </p>
-              </div>
-              <div className="text-right">
-                {broadcast.isLive && (
-                  <span className="inline-flex items-center gap-1.5 text-xs bg-red-500/20 text-red-400 px-2 py-0.5 rounded-full mb-1">
-                    <span className="w-1.5 h-1.5 bg-red-400 rounded-full animate-pulse" />
-                    LIVE
-                  </span>
-                )}
-                <div className="text-lg font-bold">
-                  {broadcast.price > 0 ? `${broadcast.price} ₽` : 'Бесплатно'}
-                </div>
-              </div>
-            </div>
-
-            {broadcast.description && (
-              <p className="text-gray-300 text-sm">{broadcast.description}</p>
-            )}
-
-            {broadcast.tags?.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 pt-1">
-                {broadcast.tags.map((tag) => (
-                  <span key={tag} className="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded">
-                    #{tag}
-                  </span>
-                ))}
-              </div>
-            )}
-
-            {/* Управление (для владельца) */}
-            {isOwner && (
-              <div className="flex gap-3 pt-2 border-t border-gray-800 mt-2">
-                <div className="text-xs text-gray-500">
-                  Stream key: <code className="bg-gray-800 px-1 rounded">{broadcast.streamKey}</code>
-                </div>
-                {!broadcast.isLive ? (
-                  <button onClick={handleStart} className="btn-primary text-sm py-1 px-3 ml-auto">
-                    ▶ Начать
-                  </button>
-                ) : (
-                  <button onClick={handleStop} className="bg-red-600 hover:bg-red-700 text-white text-sm py-1 px-3 rounded-lg ml-auto">
-                    ■ Остановить
-                  </button>
-                )}
-              </div>
-            )}
-
-            {/* Кнопка покупки (не владелец, нет доступа, есть цена) */}
-            {!isOwner && !hasAccess && broadcast.price > 0 && (
-              <button onClick={handlePay} disabled={paying} className="btn-primary w-full mt-2">
-                {paying ? 'Переход к оплате...' : `Купить доступ — ${broadcast.price} ₽`}
-              </button>
-            )}
+          <h1 className="text-xl font-bold mt-4 mb-1">{broadcast.title}</h1>
+          <p className="text-sm text-secondary mb-3">{broadcast.description}</p>
+          <div className="flex gap-3 flex-wrap items-center mb-3">
+            {broadcast.isLive ? <span className="bg-red-500/10 text-red-400 text-xs font-semibold px-2 py-0.5 rounded">Live</span> : <span className="bg-blue-500/10 text-blue-400 text-xs font-semibold px-2 py-0.5 rounded">Запись</span>}
+            <span className="text-xs text-secondary">by {broadcast.authorId?.displayName || broadcast.authorId?.username}</span>
+            {broadcast.price > 0 && <span className="text-xl font-extrabold text-accent">{broadcast.price} ₽</span>}
+            {broadcast.price === 0 && <span className="bg-green-500/10 text-green-400 text-xs font-semibold px-2 py-0.5 rounded">Бесплатно</span>}
           </div>
+          {!broadcast.hasAccess && broadcast.price > 0 && (
+            <button className="bg-accent text-white font-semibold rounded-lg px-4 py-2.5 text-sm hover:bg-accent-hover transition" onClick={handlePurchase}>
+              Купить доступ за {broadcast.price} ₽
+            </button>
+          )}
+          {broadcast.hasAccess && <span className="bg-green-500/10 text-green-400 text-sm font-semibold px-3 py-1.5 rounded">Доступ есть</span>}
+          {msg && <div className="bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 text-sm rounded-lg px-4 py-2 mt-3">{msg}</div>}
         </div>
-
-        {/* Чат */}
-        <div className="h-[600px] lg:h-auto">
-          <LiveChat broadcastId={id} />
+        <div className="flex-1 min-w-[280px]">
+          {broadcast.hasAccess && <LiveChat broadcastId={broadcast.id || broadcast._id} />}
         </div>
       </div>
     </div>

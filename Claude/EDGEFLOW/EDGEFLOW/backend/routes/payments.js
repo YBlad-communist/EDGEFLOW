@@ -1,170 +1,75 @@
-const router = require('express').Router();
-const auth = require('../middleware/auth');
-const Broadcast = require('../models/Broadcast');
-const Payment = require('../models/Payment');
-const Purchase = require('../models/Purchase');
-const User = require('../models/User');
-const yookassaService = require('../services/yookassaService');
+import { Router } from "express";
+import User from "../models/User.js";
+import Payment from "../models/Payment.js";
+import { authMiddleware } from "../middleware/auth.js";
+import { createPayment, getPayment } from "../services/yookassaService.js";
+import config from "../config/index.js";
 
-// POST /api/payments/create — создать платёж через ЮKassa
-router.post('/create', auth, async (req, res, next) => {
+const router = Router();
+
+router.post("/topup", authMiddleware, async (req, res, next) => {
   try {
-    const { itemId, itemType } = req.body;
-    if (!['course', 'broadcast'].includes(itemType)) {
-      return res.status(400).json({ error: 'Неверный тип товара' });
-    }
-
-    let amount = 0;
-    if (itemType === 'broadcast') {
-      const broadcast = await Broadcast.findById(itemId);
-      if (!broadcast) return res.status(404).json({ error: 'Трансляция не найдена' });
-      amount = broadcast.price;
-    }
-
-    if (amount <= 0) {
-      // Бесплатный — сразу создаём Purchase
-      const purchase = await Purchase.create({
-        userId: req.user._id,
-        itemId,
-        itemType,
-        amount: 0,
-        status: 'completed',
+    const { amount } = req.body;
+    if (!amount || amount <= 0) return res.status(400).json({ error: "Сумма должна быть положительной" });
+    const user = await User.findById(req.userId);
+    if (!user) return res.status(404).json({ error: "Пользователь не найден" });
+    if (config.yookassaShopId && config.yookassaSecretKey) {
+      const yooPayment = await createPayment(amount, req.userId, `Пополнение баланса на ${amount} ₽`);
+      await Payment.create({
+        userId: req.userId, itemType: "topup", amount,
+        yookassaPaymentId: yooPayment.id, status: yooPayment.status,
       });
-      return res.json({ free: true, purchase });
+      const confirmationUrl = yooPayment.confirmation?.confirmationUrl;
+      if (!confirmationUrl) return res.status(500).json({ error: "Не удалось получить ссылку на оплату" });
+      return res.json({ paymentId: yooPayment.id, confirmationUrl, message: "Перенаправление на оплату..." });
     }
-
-    // Платный — через ЮKassa
-    const payment = await Payment.create({
-      userId: req.user._id,
-      itemId,
-      itemType,
-      amount,
-    });
-
-    const ykPayment = await yookassaService.createPayment({
-      amount,
-      description: `Доступ к ${itemType}: ${itemId}`,
-      returnUrl: process.env.YOOKASSA_RETURN_URL || 'http://localhost/payment/success',
-      metadata: { paymentDbId: payment._id.toString(), userId: req.user._id.toString() },
-    });
-
-    payment.yookassaPaymentId = ykPayment.id;
-    payment.status = ykPayment.status;
-    payment.confirmationUrl = ykPayment.confirmation?.confirmation_url || '';
-    await payment.save();
-
-    res.json({ confirmationUrl: payment.confirmationUrl, paymentId: payment._id });
-  } catch (err) {
-    next(err);
-  }
+    user.balanceRub += amount;
+    await user.save();
+    res.json({ balanceRub: user.balanceRub, message: `Баланс пополнен на ${amount} ₽` });
+  } catch (err) { next(err); }
 });
 
-// POST /api/payments/webhook — вебхук от ЮKassa
-router.post('/webhook', async (req, res, next) => {
+router.get("/payment-status/:paymentId", authMiddleware, async (req, res, next) => {
+  try {
+    if (!config.yookassaShopId || !config.yookassaSecretKey) {
+      return res.status(400).json({ error: "ЮKassa не настроен" });
+    }
+    const yooPayment = await getPayment(req.params.paymentId);
+    const payment = await Payment.findOne({ yookassaPaymentId: req.params.paymentId });
+    if (payment && yooPayment.status !== payment.status) {
+      payment.status = yooPayment.status;
+      await payment.save();
+    }
+    if (yooPayment.status === "succeeded") {
+      const amount = parseFloat(yooPayment.amount.value);
+      await User.updateOne({ _id: req.userId }, { $inc: { balanceRub: amount } });
+      const user = await User.findById(req.userId);
+      return res.json({ status: "succeeded", balanceRub: user.balanceRub, message: `Баланс пополнен на ${amount} ₽` });
+    }
+    res.json({ status: yooPayment.status });
+  } catch (err) { next(err); }
+});
+
+router.post("/yookassa-webhook", async (req, res) => {
   try {
     const event = req.body;
-    if (!event || !event.object) return res.sendStatus(200);
-
-    const ykPaymentId = event.object.id;
-    const newStatus = event.object.status;
-
-    const payment = await Payment.findOne({ yookassaPaymentId: ykPaymentId });
-    if (!payment) return res.sendStatus(200);
-
-    payment.status = newStatus;
-    await payment.save();
-
-    if (newStatus === 'succeeded') {
-      // Создаём Purchase
-      const existing = await Purchase.findOne({ userId: payment.userId, itemId: payment.itemId });
-      if (!existing) {
-        await Purchase.create({
-          userId: payment.userId,
-          itemId: payment.itemId,
-          itemType: payment.itemType,
-          amount: payment.amount,
-          status: 'completed',
-          paymentId: payment.yookassaPaymentId,
-        });
+    if (event.event === "payment.succeeded" || event.event === "payment.waiting_for_capture") {
+      const yooPaymentId = event.object.id;
+      const payment = await Payment.findOne({ yookassaPaymentId: yooPaymentId });
+      if (payment) {
+        payment.status = event.object.status;
+        await payment.save();
       }
-      // Зачисляем баланс автору (если трансляция)
-      if (payment.itemType === 'broadcast') {
-        const broadcast = await Broadcast.findById(payment.itemId);
-        if (broadcast) {
-          await User.findByIdAndUpdate(broadcast.authorId, {
-            $inc: { balanceRub: payment.amount * 0.85 }, // 15% комиссия платформы
-          });
-        }
+      if (event.event === "payment.succeeded" && event.object.metadata?.userId) {
+        const amount = parseFloat(event.object.amount.value);
+        await User.updateOne({ _id: event.object.metadata.userId }, { $inc: { balanceRub: amount } });
       }
     }
-
     res.sendStatus(200);
   } catch (err) {
-    next(err);
+    console.error("YooKassa webhook error:", err);
+    res.sendStatus(200);
   }
 });
 
-// GET /api/payments/:id/status
-router.get('/:id/status', auth, async (req, res, next) => {
-  try {
-    const payment = await Payment.findById(req.params.id);
-    if (!payment) return res.status(404).json({ error: 'Платёж не найден' });
-    if (payment.userId.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ error: 'Нет доступа' });
-    }
-
-    // Синхронизируем статус с ЮKassa
-    if (payment.yookassaPaymentId && payment.status === 'pending') {
-      try {
-        const ykPayment = await yookassaService.getPayment(payment.yookassaPaymentId);
-        payment.status = ykPayment.status;
-        await payment.save();
-      } catch (e) {
-        // Игнорируем ошибки внешнего API
-      }
-    }
-
-    res.json({ status: payment.status, amount: payment.amount });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// POST /api/payments/balance — списание с внутреннего баланса
-router.post('/balance', auth, async (req, res, next) => {
-  try {
-    const { itemId, itemType } = req.body;
-    if (!['course', 'broadcast'].includes(itemType)) {
-      return res.status(400).json({ error: 'Неверный тип товара' });
-    }
-
-    let amount = 0;
-    if (itemType === 'broadcast') {
-      const broadcast = await Broadcast.findById(itemId);
-      if (!broadcast) return res.status(404).json({ error: 'Не найдено' });
-      amount = broadcast.price;
-    }
-
-    const user = await User.findById(req.user._id);
-    if (user.balanceRub < amount) {
-      return res.status(400).json({ error: 'Недостаточно средств на балансе' });
-    }
-
-    user.balanceRub -= amount;
-    await user.save();
-
-    const purchase = await Purchase.create({
-      userId: user._id,
-      itemId,
-      itemType,
-      amount,
-      status: 'completed',
-    });
-
-    res.json({ purchase, newBalance: user.balanceRub });
-  } catch (err) {
-    next(err);
-  }
-});
-
-module.exports = router;
+export default router;

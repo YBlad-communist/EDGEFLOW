@@ -1,70 +1,43 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import toast from 'react-hot-toast';
-import { useAuth } from '../context/AuthContext';
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { api } from "../api.js";
+import { useAuth } from "../contexts/AuthContext.jsx";
 
 export default function Login() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const nav = useNavigate();
   const { login } = useAuth();
-  const navigate = useNavigate();
-  const [form, setForm] = useState({ email: '', password: '' });
-  const [loading, setLoading] = useState(false);
-
-  const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
+    setError("");
     try {
-      await login(form.email, form.password);
-      navigate('/');
-    } catch (err) {
-      toast.error(err?.response?.data?.error || 'Ошибка входа');
-    } finally {
-      setLoading(false);
-    }
+      const data = await api("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
+      login(data.user);
+      nav("/courses");
+    } catch (err) { setError(err.message); }
   };
 
   return (
-    <div className="min-h-[calc(100vh-56px)] flex items-center justify-center p-4">
-      <div className="card w-full max-w-md">
-        <h1 className="text-2xl font-bold mb-6">Вход в EdgeFlow</h1>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="label">Email</label>
-            <input
-              name="email"
-              type="email"
-              className="input"
-              value={form.email}
-              onChange={handleChange}
-              required
-              autoComplete="email"
-              data-testid="email-input"
-            />
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="bg-card border border-edge rounded-xl p-8 w-full max-w-sm">
+        <h1 className="text-2xl font-bold text-center mb-2">EdgeFlow</h1>
+        <p className="text-sm text-secondary text-center mb-6">Войдите в аккаунт</p>
+        {error && <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm rounded-lg px-4 py-2 mb-4 text-center">{error}</div>}
+        <form onSubmit={handleSubmit}>
+          <div className="mb-4">
+            <label className="text-xs font-semibold text-secondary block mb-1">Email</label>
+            <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" required className="w-full bg-surface border border-edge rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent" />
           </div>
-          <div>
-            <label className="label">Пароль</label>
-            <input
-              name="password"
-              type="password"
-              className="input"
-              value={form.password}
-              onChange={handleChange}
-              required
-              autoComplete="current-password"
-              data-testid="password-input"
-            />
+          <div className="mb-6">
+            <label className="text-xs font-semibold text-secondary block mb-1">Пароль</label>
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required className="w-full bg-surface border border-edge rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent" />
           </div>
-          <button type="submit" className="btn-primary w-full" disabled={loading} data-testid="submit-btn">
-            {loading ? 'Вход...' : 'Войти'}
-          </button>
+          <button type="submit" className="w-full bg-accent text-white font-semibold rounded-lg px-4 py-2.5 text-sm hover:bg-accent-hover transition">Войти</button>
         </form>
-        <p className="mt-4 text-center text-sm text-gray-400">
-          Нет аккаунта?{' '}
-          <Link to="/register" className="text-brand-400 hover:text-brand-300">
-            Зарегистрироваться
-          </Link>
-        </p>
+        <p className="text-center text-sm text-secondary mt-4">Нет аккаунта? <Link to="/register" className="text-accent">Регистрация</Link></p>
       </div>
     </div>
   );

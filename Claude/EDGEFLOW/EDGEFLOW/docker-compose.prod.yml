@@ -1,83 +1,42 @@
-version: '3.9'
+version: "3.8"
 
 services:
   mongodb:
-    image: mongo:7-jammy
+    image: mongo:7
     restart: unless-stopped
     volumes:
       - mongo_data:/data/db
     networks:
       - edgeflow_net
-    healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   backend:
     build:
-      context: .
-      dockerfile: Dockerfile.backend
+      context: ./backend
+      dockerfile: ../Dockerfile.backend
     restart: unless-stopped
-    env_file: .env
-    environment:
-      - MONGO_URI=mongodb://mongodb:27017/edgeflow
-      - SRS_API_URL=http://srs:1985
+    ports:
+      - "3001:3001"
+    env_file:
+      - ./backend/.env
     depends_on:
-      mongodb:
-        condition: service_healthy
+      - mongodb
     networks:
       - edgeflow_net
-    ports:
-      - "5000:5000"
 
   frontend:
     build:
-      context: .
-      dockerfile: Dockerfile.frontend
-    restart: unless-stopped
-    networks:
-      - edgeflow_net
-
-  srs:
-    image: ossrs/srs:5
-    restart: unless-stopped
-    ports:
-      - "1935:1935"   # RTMP
-      - "8080:8080"   # HLS + HTTP API
-      - "1985:1985"   # SRS HTTP API
-    volumes:
-      - ./srs.conf:/usr/local/srs/conf/srs.conf:ro
-    networks:
-      - edgeflow_net
-
-  nginx-proxy:
-    image: nginx:alpine
+      context: ./frontend
+      dockerfile: ../Dockerfile.frontend
     restart: unless-stopped
     ports:
       - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - certbot_www:/var/www/certbot:ro
-      - certbot_conf:/etc/letsencrypt:ro
     depends_on:
-      - frontend
       - backend
     networks:
       - edgeflow_net
 
-  certbot:
-    image: certbot/certbot
-    volumes:
-      - certbot_www:/var/www/certbot
-      - certbot_conf:/etc/letsencrypt
-    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
-
 volumes:
   mongo_data:
-  certbot_www:
-  certbot_conf:
 
 networks:
   edgeflow_net:

@@ -1,71 +1,52 @@
-const request = require('supertest');
-const mongoose = require('mongoose');
-const { MongoMemoryServer } = require('mongodb-memory-server');
+import request from "supertest";
+import express from "express";
+import cookieParser from "cookie-parser";
+import { signAccessToken } from "../middleware/auth.js";
+import User from "../models/User.js";
+import paymentRoutes from "../routes/payments.js";
 
-jest.mock('../services/yookassaService', () => ({
-  createPayment: jest.fn().mockResolvedValue({
-    id: 'mock_yk_payment_id',
-    status: 'pending',
-    confirmation: { confirmation_url: 'https://yookassa.ru/checkout/mock' },
-  }),
-  getPayment: jest.fn().mockResolvedValue({ id: 'mock_yk_payment_id', status: 'succeeded' }),
-}));
+const app = express();
+app.use(express.json());
+app.use(cookieParser());
+app.use("/api/payments", paymentRoutes);
 
-let mongod;
-let app;
 let token;
-let broadcastId;
+let userId;
 
-beforeAll(async () => {
-  mongod = await MongoMemoryServer.create();
-  process.env.MONGO_URI = mongod.getUri();
-  process.env.JWT_SECRET = 'test_secret';
-  app = require('../server').app;
-  await mongoose.connect(process.env.MONGO_URI);
-
-  // Учитель
-  const teacherRes = await request(app)
-    .post('/api/auth/register')
-    .send({ email: 'pay_teacher@test.com', password: '123456', username: 'payteacher', role: 'teacher' });
-  const teacherToken = teacherRes.body.token;
-
-  await request(app)
-    .put('/api/profile/teacher')
-    .set('Authorization', `Bearer ${teacherToken}`)
-    .send({ fullName: 'T', education: 'T', experience: 'T', specialization: 'T', hourlyRate: 100, bio: 'T' });
-
-  const brRes = await request(app)
-    .post('/api/broadcasts')
-    .set('Authorization', `Bearer ${teacherToken}`)
-    .send({ title: 'Платная трансляция', price: 999 });
-  broadcastId = brRes.body._id;
-
-  // Студент
-  const stuRes = await request(app)
-    .post('/api/auth/register')
-    .send({ email: 'pay_student@test.com', password: '123456', username: 'paystudent', role: 'student' });
-  token = stuRes.body.token;
+beforeEach(async () => {
+  const user = await User.create({
+    email: "pay@test.com",
+    passwordHash: "hash",
+    role: "student",
+    username: "PayUser",
+    balanceRub: 1000,
+  });
+  userId = user._id.toString();
+  token = signAccessToken(userId, "student");
 });
 
-afterAll(async () => {
-  await mongoose.disconnect();
-  await mongod.stop();
-});
-
-describe('POST /api/payments/create', () => {
-  it('создаёт платёж через (мок) ЮKassa', async () => {
+describe("POST /api/payments/topup", () => {
+  it("should topup balance directly when YooKassa not configured", async () => {
     const res = await request(app)
-      .post('/api/payments/create')
-      .set('Authorization', `Bearer ${token}`)
-      .send({ itemId: broadcastId, itemType: 'broadcast' });
+      .post("/api/payments/topup")
+      .set("Cookie", [`accessToken=${token}`])
+      .send({ amount: 500 });
     expect(res.status).toBe(200);
-    expect(res.body.confirmationUrl).toContain('yookassa');
+    expect(res.body.balanceRub).toBe(1500);
   });
 
-  it('без авторизации — 401', async () => {
+  it("should reject zero or negative amount", async () => {
     const res = await request(app)
-      .post('/api/payments/create')
-      .send({ itemId: broadcastId, itemType: 'broadcast' });
+      .post("/api/payments/topup")
+      .set("Cookie", [`accessToken=${token}`])
+      .send({ amount: 0 });
+    expect(res.status).toBe(400);
+  });
+
+  it("should reject unauthorized access", async () => {
+    const res = await request(app)
+      .post("/api/payments/topup")
+      .send({ amount: 100 });
     expect(res.status).toBe(401);
   });
 });

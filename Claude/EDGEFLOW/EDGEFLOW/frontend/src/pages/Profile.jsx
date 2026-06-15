@@ -1,91 +1,61 @@
-import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import api from '../api';
+import { useState } from "react";
+import { api } from "../api.js";
+import { useAuth } from "../contexts/AuthContext.jsx";
 
 export default function Profile() {
-  const { user, isTeacher } = useAuth();
-  const [balance, setBalance] = useState(null);
-  const [purchases, setPurchases] = useState([]);
+  const { user, updateUser } = useAuth();
+  const [amount, setAmount] = useState(100);
+  const [msg, setMsg] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    api.get('/user/balance').then((r) => setBalance(r.data.balanceRub)).catch(() => {});
-    api.get('/user/purchases').then((r) => setPurchases(r.data)).catch(() => {});
-  }, []);
-
-  if (!user) return null;
+  const handleTopup = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setMsg("");
+    try {
+      const data = await api("/api/payments/topup", { method: "POST", body: JSON.stringify({ amount }) });
+      if (data.confirmationUrl) {
+        window.open(data.confirmationUrl, "_blank");
+        setMsg("Перенаправление на страницу оплаты...");
+      } else if (data.balanceRub !== undefined) {
+        setMsg(data.message);
+        updateUser({ balanceRub: data.balanceRub });
+      } else {
+        setMsg(data.message || "Готово");
+      }
+    } catch (err) { setMsg(err.message); }
+    setLoading(false);
+  };
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
-      <h1 className="text-2xl font-bold">Личный кабинет</h1>
-
-      {/* Основная информация */}
-      <div className="card">
-        <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-full bg-brand-600 flex items-center justify-center text-xl font-bold">
-            {user.username[0].toUpperCase()}
-          </div>
-          <div>
-            <div className="font-semibold text-lg">{user.username}</div>
-            <div className="text-gray-400 text-sm">{user.email}</div>
-            <div className="text-xs text-gray-500 mt-0.5">
-              {user.role === 'teacher' ? '🧑‍🏫 Учитель' : '🎓 Студент'}
-            </div>
-          </div>
+    <div className="max-w-lg mx-auto px-4 py-8">
+      <h1 className="text-2xl font-bold mb-6">Профиль</h1>
+      <div className="bg-card border border-edge rounded-xl p-6 mb-6 space-y-3">
+        <div>
+          <div className="text-xs text-secondary font-semibold">Email</div>
+          <div className="text-base font-semibold">{user?.email}</div>
+        </div>
+        <div>
+          <div className="text-xs text-secondary font-semibold">Роль</div>
+          <div className="text-base font-semibold">{user?.role === "teacher" ? "Учитель" : "Ученик"}</div>
+        </div>
+        <div>
+          <div className="text-xs text-secondary font-semibold">Баланс</div>
+          <div className="text-3xl font-extrabold text-accent">{user?.balanceRub?.toFixed(2) || "0.00"} ₽</div>
         </div>
       </div>
-
-      {/* Баланс */}
-      <div className="card">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-sm text-gray-400 mb-1">Баланс</div>
-            <div className="text-2xl font-bold">
-              {balance !== null ? `${balance.toFixed(2)} ₽` : '—'}
-            </div>
+      <div className="bg-card border border-edge rounded-xl p-6">
+        <h2 className="text-lg font-bold mb-4">Пополнить баланс</h2>
+        <form onSubmit={handleTopup}>
+          <div className="mb-4">
+            <label className="text-xs font-semibold text-secondary block mb-1">Сумма (₽)</label>
+            <input type="number" value={amount} onChange={(e) => setAmount(Number(e.target.value))} min={1} required className="w-full bg-surface border border-edge rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent" />
           </div>
-          <Link to="/settings" className="btn-secondary text-sm">
-            Настройки
-          </Link>
-        </div>
-      </div>
-
-      {/* Анкета учителя */}
-      {isTeacher && (
-        <div className="card">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-semibold">Анкета учителя</h2>
-            <Link to="/teacher/profile" className="text-brand-400 text-sm hover:text-brand-300">
-              {user.teacherProfile?.isComplete ? 'Редактировать' : 'Заполнить →'}
-            </Link>
-          </div>
-          {user.teacherProfile?.isComplete ? (
-            <div className="space-y-1 text-sm text-gray-300">
-              <div><span className="text-gray-500">ФИО:</span> {user.teacherProfile.fullName}</div>
-              <div><span className="text-gray-500">Специализация:</span> {user.teacherProfile.specialization}</div>
-              <div><span className="text-gray-500">Ставка:</span> {user.teacherProfile.hourlyRate} ₽/ч</div>
-            </div>
-          ) : (
-            <p className="text-sm text-yellow-400">⚠ Анкета не заполнена. Заполните её, чтобы создавать трансляции.</p>
-          )}
-        </div>
-      )}
-
-      {/* Покупки */}
-      <div className="card">
-        <h2 className="font-semibold mb-3">Мои покупки</h2>
-        {purchases.length === 0 ? (
-          <p className="text-gray-500 text-sm">Пока ничего не куплено</p>
-        ) : (
-          <ul className="space-y-2">
-            {purchases.map((p) => (
-              <li key={p._id} className="text-sm flex justify-between">
-                <span className="text-gray-300">{p.itemType}: {p.itemId}</span>
-                <span className="text-gray-500">{p.amount} ₽</span>
-              </li>
-            ))}
-          </ul>
-        )}
+          <button type="submit" className="w-full bg-accent text-white font-semibold rounded-lg px-4 py-2.5 text-sm hover:bg-accent-hover transition disabled:opacity-50" disabled={loading}>
+            {loading ? "Обработка..." : "Пополнить"}
+          </button>
+          {msg && <div className="bg-green-500/10 border border-green-500/30 text-green-400 text-sm rounded-lg px-4 py-2 mt-4 text-center">{msg}</div>}
+        </form>
       </div>
     </div>
   );

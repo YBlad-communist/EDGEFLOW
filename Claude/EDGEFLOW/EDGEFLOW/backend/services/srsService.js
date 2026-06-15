@@ -1,27 +1,39 @@
-const axios = require('axios');
+import axios from "axios";
+import config from "../config/index.js";
 
-const SRS_API = process.env.SRS_API_URL || 'http://srs:1985';
+const SRS_API_SECRET = process.env.SRS_API_SECRET || "";
 
-const srsService = {
-  async isStreamActive(streamKey) {
-    try {
-      const res = await axios.get(`${SRS_API}/api/v1/streams`, { timeout: 3000 });
-      const streams = res.data?.streams || [];
-      return streams.some((s) => s.name === streamKey && s.publish?.active);
-    } catch (e) {
-      return false;
-    }
-  },
+export async function checkStreamActive(streamKey) {
+  try {
+    const { data } = await axios.post(`${config.srsApiUrl}/api/v1/streams/get`, {
+      secret: SRS_API_SECRET || undefined,
+      stream: streamKey,
+    });
+    return data?.code === 0 && data?.stream?.active;
+  } catch { return false; }
+}
 
-  getHlsUrl(streamKey) {
-    const base = SRS_API.replace(':1985', ':8080');
-    return `${base}/live/${streamKey}.m3u8`;
-  },
+export async function getStreamInfo(streamKey) {
+  try {
+    const { data } = await axios.post(`${config.srsApiUrl}/api/v1/streams/get`, {
+      secret: SRS_API_SECRET || undefined,
+      stream: streamKey,
+    });
+    return data?.code === 0 ? data.stream : null;
+  } catch { return null; }
+}
 
-  getRtmpUrl(streamKey) {
-    const host = (process.env.SRS_RTMP_URL || 'rtmp://localhost:1935/live').replace(/\/[^/]*$/, '');
-    return `${host}/${streamKey}`;
-  },
-};
+export function buildHlsUrl(streamKey) {
+  return `${config.srsOrigin}/live/${streamKey}.m3u8`;
+}
 
-module.exports = srsService;
+export function buildRtmpUrl(streamKey) {
+  return `${config.srsRtmpHost}/${streamKey}`;
+}
+
+export function generateStreamKey() {
+  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+  let key = "";
+  for (let i = 0; i < 24; i++) key += chars[Math.floor(Math.random() * chars.length)];
+  return key;
+}

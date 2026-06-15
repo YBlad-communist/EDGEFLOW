@@ -1,13 +1,13 @@
-version: '3.9'
+version: "3.8"
 
-# Локальный запуск SRS медиасервера для разработки
 services:
   srs:
     image: ossrs/srs:5
     restart: unless-stopped
     ports:
-      - "1935:1935"   # RTMP (OBS → rtmp://localhost:1935/live/<stream_key>)
-      - "8080:8080"   # HLS-плеер: http://localhost:8080/live/<stream_key>.m3u8
-      - "1985:1985"   # HTTP API SRS
+      - "1935:1935"
+      - "1985:1985"
+      - "8080:8080"
     volumes:
-      - ./srs.conf:/usr/local/srs/conf/srs.conf:ro
+      - ./srs.conf:/usr/local/srs/conf/srs.conf
+    command: ./objs/srs -c /usr/local/srs/conf/srs.conf

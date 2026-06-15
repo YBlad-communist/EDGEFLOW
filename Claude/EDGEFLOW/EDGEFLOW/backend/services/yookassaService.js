@@ -1,58 +1,44 @@
-const axios = require('axios');
-const { v4: uuidv4 } = require('uuid');
+import crypto from "crypto";
+import config from "../config/index.js";
 
-const YOOKASSA_URL = 'https://api.yookassa.ru/v3/payments';
-
-function getAuth() {
-  const shopId = process.env.YOOKASSA_SHOP_ID || 'test_shop';
-  const secretKey = process.env.YOOKASSA_SECRET_KEY || 'test_key';
-  return { username: shopId, password: secretKey };
+function getAuthHeader() {
+  if (!config.yookassaShopId || !config.yookassaSecretKey) return null;
+  return "Basic " + Buffer.from(`${config.yookassaShopId}:${config.yookassaSecretKey}`).toString("base64");
 }
 
-const yookassaService = {
-  async createPayment({ amount, description, returnUrl, metadata }) {
-    const payload = {
-      amount: {
-        value: amount.toFixed(2),
-        currency: 'RUB',
-      },
-      confirmation: {
-        type: 'redirect',
-        return_url: returnUrl,
-      },
-      capture: true,
-      description,
-      metadata,
-    };
+export async function createPayment(amount, userId, description) {
+  const auth = getAuthHeader();
+  if (!auth) throw new Error("YooKassa not configured");
+  const idempotenceKey = crypto.randomUUID();
+  const body = {
+    amount: { value: amount.toFixed(2), currency: "RUB" },
+    confirmation: { type: "redirect", return_url: `${config.baseUrl}/profile` },
+    capture: true,
+    description: description || "Пополнение баланса EdgeFlow",
+    metadata: { userId },
+  };
+  const res = await fetch("https://api.yookassa.ru/v3/payments", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: auth,
+      "Idempotence-Key": idempotenceKey,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.description || "Ошибка ЮKassa");
+  }
+  return res.json();
+}
 
-    const res = await axios.post(YOOKASSA_URL, payload, {
-      auth: getAuth(),
-      headers: {
-        'Idempotence-Key': uuidv4(),
-        'Content-Type': 'application/json',
-      },
-    });
-    return res.data;
-  },
-
-  async getPayment(yookassaPaymentId) {
-    const res = await axios.get(`${YOOKASSA_URL}/${yookassaPaymentId}`, {
-      auth: getAuth(),
-    });
-    return res.data;
-  },
-
-  async capturePayment(yookassaPaymentId, amount) {
-    const res = await axios.post(
-      `${YOOKASSA_URL}/${yookassaPaymentId}/capture`,
-      { amount: { value: amount.toFixed(2), currency: 'RUB' } },
-      {
-        auth: getAuth(),
-        headers: { 'Idempotence-Key': uuidv4() },
-      }
-    );
-    return res.data;
-  },
-};
-
-module.exports = yookassaService;
+export async function getPayment(paymentId) {
+  const auth = getAuthHeader();
+  if (!auth) throw new Error("YooKassa not configured");
+  const res = await fetch(`https://api.yookassa.ru/v3/payments/${paymentId}`, {
+    headers: { Authorization: auth },
+  });
+  if (!res.ok) throw new Error("Ошибка получения статуса платежа");
+  return res.json();
+}

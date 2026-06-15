@@ -2,26 +2,36 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  body {
-    @apply bg-gray-950 text-gray-100 antialiased;
-  }
+:root {
+  --bg: #0d0d1a;
+  --surface: #141428;
+  --card: #1a1a30;
+  --border: #2a2a45;
+  --text: #e0e0f0;
+  --secondary: #8888aa;
+  --accent: #7c5cfc;
+  --accent-hover: #6a4be0;
+  --green: #2ecc71;
+  --red: #e74c3c;
+  --yellow: #f1c40f;
+  --blue: #3498db;
 }
 
-@layer components {
-  .btn-primary {
-    @apply bg-brand-600 hover:bg-brand-700 text-white font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
-  }
-  .btn-secondary {
-    @apply bg-gray-800 hover:bg-gray-700 text-gray-100 font-medium px-4 py-2 rounded-lg transition-colors;
-  }
-  .input {
-    @apply w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent;
-  }
-  .card {
-    @apply bg-gray-900 border border-gray-800 rounded-xl p-5;
-  }
-  .label {
-    @apply block text-sm font-medium text-gray-300 mb-1;
-  }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+@layer utilities {
+  .text-secondary { color: var(--secondary); }
+  .text-accent { color: var(--accent); }
+  .bg-surface { background: var(--surface); }
+  .bg-card { background: var(--card); }
+  .border-edge { border-color: var(--border); }
 }
